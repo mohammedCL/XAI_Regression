@@ -1,0 +1,660 @@
+ExplainableAI Regression Models Summary Report
+==================================================
+
+Dataset: simple_linear
+------------------------------
+File: simple_linear_regression.csv
+Shape: (500, 4)
+Features: 3
+Feature names: feature_1, feature_2, feature_3
+
+Model Performance:
+  linear_regression:
+    R² Score: 1.0000
+    RMSE: 0.1015
+    MAE: 0.0814
+    Model file: simple_linear_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 1.0000
+    RMSE: 0.1238
+    MAE: 0.0987
+    Model file: simple_linear_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.9983
+    RMSE: 0.9949
+    MAE: 0.7506
+    Model file: simple_linear_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.8629
+    RMSE: 8.8598
+    MAE: 6.7143
+    Model file: simple_linear_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.9923
+    RMSE: 2.0985
+    MAE: 0.4081
+    Model file: simple_linear_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.9942
+    RMSE: 1.8287
+    MAE: 0.4166
+    Model file: simple_linear_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.9935
+    RMSE: 1.9225
+    MAE: 0.4701
+    Model file: simple_linear_decision_tree.joblib
+
+  svr:
+    R² Score: 0.7770
+    RMSE: 11.3012
+    MAE: 5.1358
+    Model file: simple_linear_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.7768
+    RMSE: 11.3055
+    MAE: 5.0744
+    Model file: simple_linear_svr_scaled.joblib
+    Scaler file: simple_linear_scaler.joblib
+
+  linear_scaled:
+    R² Score: 1.0000
+    RMSE: 0.1015
+    MAE: 0.0814
+    Model file: simple_linear_linear_scaled.joblib
+    Scaler file: simple_linear_scaler.joblib
+
+
+==================================================
+
+Dataset: complex_nonlinear
+------------------------------
+File: complex_nonlinear_regression.csv
+Shape: (2000, 16)
+Features: 15
+Feature names: feature_1, feature_2, feature_3, feature_4, feature_5, feature_6, feature_7, feature_8, feature_9, feature_10, feature_11, feature_12, feature_13, feature_14, feature_15
+
+Model Performance:
+  linear_regression:
+    R² Score: 1.0000
+    RMSE: 0.2973
+    MAE: 0.2388
+    Model file: complex_nonlinear_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 1.0000
+    RMSE: 0.3046
+    MAE: 0.2420
+    Model file: complex_nonlinear_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.9997
+    RMSE: 2.7579
+    MAE: 2.2060
+    Model file: complex_nonlinear_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.8763
+    RMSE: 56.6111
+    MAE: 44.0411
+    Model file: complex_nonlinear_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.8465
+    RMSE: 63.0434
+    MAE: 47.4501
+    Model file: complex_nonlinear_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.9435
+    RMSE: 38.2442
+    MAE: 27.9434
+    Model file: complex_nonlinear_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.5852
+    RMSE: 103.6447
+    MAE: 79.6127
+    Model file: complex_nonlinear_decision_tree.joblib
+
+  svr:
+    R² Score: 0.2652
+    RMSE: 137.9579
+    MAE: 105.7233
+    Model file: complex_nonlinear_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.2650
+    RMSE: 137.9748
+    MAE: 105.7551
+    Model file: complex_nonlinear_svr_scaled.joblib
+    Scaler file: complex_nonlinear_scaler.joblib
+
+  linear_scaled:
+    R² Score: 1.0000
+    RMSE: 0.2973
+    MAE: 0.2388
+    Model file: complex_nonlinear_linear_scaled.joblib
+    Scaler file: complex_nonlinear_scaler.joblib
+
+
+==================================================
+
+Dataset: high_dimensional
+------------------------------
+File: high_dimensional_regression.csv
+Shape: (1000, 26)
+Features: 25
+Feature names: feature_1, feature_2, feature_3, feature_4, feature_5, feature_6, feature_7, feature_8, feature_9, feature_10, feature_11, feature_12, feature_13, feature_14, feature_15, feature_16, feature_17, feature_18, feature_19, feature_20, feature_21, feature_22, feature_23, feature_24, feature_25
+
+Model Performance:
+  linear_regression:
+    R² Score: 1.0000
+    RMSE: 0.1959
+    MAE: 0.1620
+    Model file: high_dimensional_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 1.0000
+    RMSE: 0.3352
+    MAE: 0.2648
+    Model file: high_dimensional_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.9998
+    RMSE: 3.3876
+    MAE: 2.5511
+    Model file: high_dimensional_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.8857
+    RMSE: 74.1062
+    MAE: 57.7809
+    Model file: high_dimensional_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.7321
+    RMSE: 113.4590
+    MAE: 87.1922
+    Model file: high_dimensional_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.8793
+    RMSE: 76.1732
+    MAE: 55.7747
+    Model file: high_dimensional_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.1221
+    RMSE: 205.3888
+    MAE: 166.7936
+    Model file: high_dimensional_decision_tree.joblib
+
+  svr:
+    R² Score: 0.0580
+    RMSE: 212.7582
+    MAE: 167.9419
+    Model file: high_dimensional_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.0583
+    RMSE: 212.7225
+    MAE: 167.9277
+    Model file: high_dimensional_svr_scaled.joblib
+    Scaler file: high_dimensional_scaler.joblib
+
+  linear_scaled:
+    R² Score: 1.0000
+    RMSE: 0.1959
+    MAE: 0.1620
+    Model file: high_dimensional_linear_scaled.joblib
+    Scaler file: high_dimensional_scaler.joblib
+
+
+==================================================
+
+Dataset: noisy_data
+------------------------------
+File: noisy_data_regression.csv
+Shape: (800, 9)
+Features: 8
+Feature names: feature_1, feature_2, feature_3, feature_4, feature_5, feature_6, feature_7, feature_8
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.9999
+    RMSE: 0.5516
+    MAE: 0.4266
+    Model file: noisy_data_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.9999
+    RMSE: 0.5655
+    MAE: 0.4423
+    Model file: noisy_data_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.9993
+    RMSE: 1.9393
+    MAE: 1.5252
+    Model file: noisy_data_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.8692
+    RMSE: 26.5380
+    MAE: 21.2006
+    Model file: noisy_data_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.9657
+    RMSE: 13.5858
+    MAE: 8.2383
+    Model file: noisy_data_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.9837
+    RMSE: 9.3760
+    MAE: 5.5476
+    Model file: noisy_data_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.9315
+    RMSE: 19.2097
+    MAE: 13.5208
+    Model file: noisy_data_decision_tree.joblib
+
+  svr:
+    R² Score: 0.4080
+    RMSE: 56.4676
+    MAE: 42.1886
+    Model file: noisy_data_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.4168
+    RMSE: 56.0496
+    MAE: 41.6632
+    Model file: noisy_data_svr_scaled.joblib
+    Scaler file: noisy_data_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.9999
+    RMSE: 0.5516
+    MAE: 0.4266
+    Model file: noisy_data_linear_scaled.joblib
+    Scaler file: noisy_data_scaler.joblib
+
+
+==================================================
+
+Dataset: california_housing
+------------------------------
+File: california_housing_regression.csv
+Shape: (20640, 9)
+Features: 8
+Feature names: MedInc, HouseAge, AveRooms, AveBedrms, Population, AveOccup, Latitude, Longitude
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.5758
+    RMSE: 0.7456
+    MAE: 0.5332
+    Model file: california_housing_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.5759
+    RMSE: 0.7455
+    MAE: 0.5332
+    Model file: california_housing_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.2842
+    RMSE: 0.9685
+    MAE: 0.7616
+    Model file: california_housing_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.4166
+    RMSE: 0.8744
+    MAE: 0.6763
+    Model file: california_housing_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.8051
+    RMSE: 0.5053
+    MAE: 0.3275
+    Model file: california_housing_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.7756
+    RMSE: 0.5422
+    MAE: 0.3716
+    Model file: california_housing_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.6221
+    RMSE: 0.7037
+    MAE: 0.4547
+    Model file: california_housing_decision_tree.joblib
+
+  svr:
+    R² Score: -0.0165
+    RMSE: 1.1541
+    MAE: 0.8600
+    Model file: california_housing_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.7276
+    RMSE: 0.5975
+    MAE: 0.3986
+    Model file: california_housing_svr_scaled.joblib
+    Scaler file: california_housing_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.5758
+    RMSE: 0.7456
+    MAE: 0.5332
+    Model file: california_housing_linear_scaled.joblib
+    Scaler file: california_housing_scaler.joblib
+
+
+==================================================
+
+Dataset: diabetes
+------------------------------
+File: diabetes_regression.csv
+Shape: (442, 11)
+Features: 10
+Feature names: age, sex, bmi, bp, s1, s2, s3, s4, s5, s6
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.4526
+    RMSE: 53.8534
+    MAE: 42.7941
+    Model file: diabetes_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.4192
+    RMSE: 55.4745
+    MAE: 46.1389
+    Model file: diabetes_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.3576
+    RMSE: 58.3402
+    MAE: 49.7303
+    Model file: diabetes_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: -0.0025
+    RMSE: 72.8781
+    MAE: 63.7059
+    Model file: diabetes_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.4428
+    RMSE: 54.3324
+    MAE: 44.0530
+    Model file: diabetes_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.4529
+    RMSE: 53.8371
+    MAE: 44.6033
+    Model file: diabetes_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.0607
+    RMSE: 70.5464
+    MAE: 54.5281
+    Model file: diabetes_decision_tree.joblib
+
+  svr:
+    R² Score: 0.1821
+    RMSE: 65.8277
+    MAE: 56.0237
+    Model file: diabetes_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.1822
+    RMSE: 65.8235
+    MAE: 56.0295
+    Model file: diabetes_svr_scaled.joblib
+    Scaler file: diabetes_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.4526
+    RMSE: 53.8534
+    MAE: 42.7941
+    Model file: diabetes_linear_scaled.joblib
+    Scaler file: diabetes_scaler.joblib
+
+
+==================================================
+
+Dataset: stock_price
+------------------------------
+File: stock_price_regression.csv
+Shape: (2000, 10)
+Features: 9
+Feature names: gdp_growth, inflation_rate, unemployment_rate, interest_rate, market_volatility, trading_volume, revenue_growth, profit_margin, debt_ratio
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.6321
+    RMSE: 4.9470
+    MAE: 3.9389
+    Model file: stock_price_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.6314
+    RMSE: 4.9516
+    MAE: 3.9441
+    Model file: stock_price_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.3707
+    RMSE: 6.4700
+    MAE: 5.2104
+    Model file: stock_price_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.3747
+    RMSE: 6.4496
+    MAE: 5.1978
+    Model file: stock_price_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.5252
+    RMSE: 5.6202
+    MAE: 4.5354
+    Model file: stock_price_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.5780
+    RMSE: 5.2987
+    MAE: 4.2473
+    Model file: stock_price_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.0127
+    RMSE: 8.1045
+    MAE: 6.5988
+    Model file: stock_price_decision_tree.joblib
+
+  svr:
+    R² Score: -0.0107
+    RMSE: 8.1997
+    MAE: 6.4693
+    Model file: stock_price_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.5429
+    RMSE: 5.5146
+    MAE: 4.3361
+    Model file: stock_price_svr_scaled.joblib
+    Scaler file: stock_price_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.6321
+    RMSE: 4.9470
+    MAE: 3.9389
+    Model file: stock_price_linear_scaled.joblib
+    Scaler file: stock_price_scaler.joblib
+
+
+==================================================
+
+Dataset: energy_consumption
+------------------------------
+File: energy_consumption_regression.csv
+Shape: (1500, 10)
+Features: 9
+Feature names: temperature, humidity, wind_speed, solar_radiation, building_size, insulation_rating, occupancy, hour_of_day, day_of_week
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.5978
+    RMSE: 14.9712
+    MAE: 12.1323
+    Model file: energy_consumption_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.5978
+    RMSE: 14.9712
+    MAE: 12.1324
+    Model file: energy_consumption_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.5934
+    RMSE: 15.0539
+    MAE: 12.2136
+    Model file: energy_consumption_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.5928
+    RMSE: 15.0645
+    MAE: 12.2130
+    Model file: energy_consumption_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.8321
+    RMSE: 9.6728
+    MAE: 7.5981
+    Model file: energy_consumption_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.9059
+    RMSE: 7.2421
+    MAE: 5.8366
+    Model file: energy_consumption_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.6578
+    RMSE: 13.8088
+    MAE: 10.6481
+    Model file: energy_consumption_decision_tree.joblib
+
+  svr:
+    R² Score: 0.2625
+    RMSE: 20.2732
+    MAE: 16.4091
+    Model file: energy_consumption_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.6277
+    RMSE: 14.4037
+    MAE: 11.1437
+    Model file: energy_consumption_svr_scaled.joblib
+    Scaler file: energy_consumption_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.5978
+    RMSE: 14.9712
+    MAE: 12.1323
+    Model file: energy_consumption_linear_scaled.joblib
+    Scaler file: energy_consumption_scaler.joblib
+
+
+==================================================
+
+Dataset: sales_prediction
+------------------------------
+File: sales_prediction_regression.csv
+Shape: (1200, 10)
+Features: 9
+Feature names: advertising_spend, social_media_reach, email_campaign_size, price, discount_percent, product_rating, competitor_price, seasonal_factor, economic_index
+
+Model Performance:
+  linear_regression:
+    R² Score: 0.8819
+    RMSE: 22.5654
+    MAE: 17.9634
+    Model file: sales_prediction_linear_regression.joblib
+
+  ridge_regression:
+    R² Score: 0.8819
+    RMSE: 22.5676
+    MAE: 17.9656
+    Model file: sales_prediction_ridge_regression.joblib
+
+  lasso_regression:
+    R² Score: 0.8809
+    RMSE: 22.6600
+    MAE: 18.0839
+    Model file: sales_prediction_lasso_regression.joblib
+
+  elastic_net:
+    R² Score: 0.8452
+    RMSE: 25.8398
+    MAE: 20.5862
+    Model file: sales_prediction_elastic_net.joblib
+
+  random_forest:
+    R² Score: 0.6930
+    RMSE: 36.3850
+    MAE: 29.6284
+    Model file: sales_prediction_random_forest.joblib
+
+  gradient_boosting:
+    R² Score: 0.7845
+    RMSE: 30.4844
+    MAE: 25.0534
+    Model file: sales_prediction_gradient_boosting.joblib
+
+  decision_tree:
+    R² Score: 0.3952
+    RMSE: 51.0666
+    MAE: 40.9471
+    Model file: sales_prediction_decision_tree.joblib
+
+  svr:
+    R² Score: 0.0008
+    RMSE: 65.6378
+    MAE: 52.5668
+    Model file: sales_prediction_svr.joblib
+
+  svr_scaled:
+    R² Score: 0.3115
+    RMSE: 54.4877
+    MAE: 43.0692
+    Model file: sales_prediction_svr_scaled.joblib
+    Scaler file: sales_prediction_scaler.joblib
+
+  linear_scaled:
+    R² Score: 0.8819
+    RMSE: 22.5654
+    MAE: 17.9634
+    Model file: sales_prediction_linear_scaled.joblib
+    Scaler file: sales_prediction_scaler.joblib
+
+
+==================================================
+
