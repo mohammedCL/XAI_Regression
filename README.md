@@ -1,24 +1,24 @@
-# ExplainableAI - ML Model Analysis Dashboard
+# ExplainableAI - Regression Model Analysis Dashboard
 
-A comprehensive web-based platform for analyzing, visualizing, and understanding machine learning models through advanced explainability techniques powered by SHAP, AI explanations, and interactive visualizations.
+A comprehensive web-based platform for analyzing, visualizing, and understanding regression machine learning models through advanced explainability techniques powered by SHAP, AI explanations, and interactive visualizations.
 
 ## 🎯 Overview
 
 ExplainableAI provides an intuitive interface for data scientists and machine learning practitioners to:
 
-- **Upload and analyze** sklearn models (.joblib, .pkl) and ONNX models
+- **Upload and analyze** sklearn regression models (.joblib, .pkl)
 - **Generate comprehensive insights** using SHAP (SHapley Additive exPlanations)
 - **Visualize feature importance** and model behavior through interactive charts
 - **Perform what-if analysis** to understand prediction changes
 - **Get AI-powered explanations** using AWS Bedrock (Claude 3 Sonnet)
-- **Analyze model performance** with ROC curves, confusion matrices, and threshold analysis
+- **Analyze model performance** with regression metrics, residual analysis, and diagnostic plots
 - **Explore feature dependencies** with partial dependence plots and SHAP dependence plots
 
 ## 🏗️ Architecture
 
 ### Backend (FastAPI)
 - **Framework**: FastAPI with async support
-- **ML Support**: scikit-learn models and ONNX runtime
+- **ML Support**: scikit-learn regression models
 - **Explainability**: SHAP library for model interpretability
 - **AI Explanations**: AWS Bedrock integration with Claude 3 Sonnet
 - **Authentication**: Token-based authentication system
@@ -31,7 +31,7 @@ ExplainableAI provides an intuitive interface for data scientists and machine le
 - **Visualizations**: 
   - Plotly.js for interactive charts
   - Recharts for data visualization
-  - React Force Graph for network visualizations
+  - Matplotlib for diagnostic plots
 - **Navigation**: React Router for SPA routing
 
 ## 🚀 Quick Start
@@ -95,10 +95,10 @@ ExplainableAI provides an intuitive interface for data scientists and machine le
 
 ### Model Analysis
 - **Model Overview**: Comprehensive statistics, performance metrics, and metadata
-- **Classification Stats**: Accuracy, precision, recall, F1-score, AUC, confusion matrix
+- **Regression Stats**: R², RMSE, MAE, MAPE, explained variance, and residual analysis
 - **Feature Importance**: SHAP-based and built-in importance rankings
-- **ROC Analysis**: ROC curves with optimal threshold detection
-- **Threshold Analysis**: Performance metrics across different decision thresholds
+- **Diagnostic Plots**: Residuals vs fitted, predicted vs actual, Q-Q plots
+- **Performance Summary**: Model quality assessment and overfitting detection
 
 ### Explainability & Interpretability
 - **Instance Explanations**: SHAP values for individual predictions
@@ -111,7 +111,7 @@ ExplainableAI provides an intuitive interface for data scientists and machine le
 - **Dataset Comparison**: Training vs test dataset statistics and drift detection
 - **Feature Correlations**: Correlation analysis between selected features
 - **Data Quality**: Missing values, duplicates, and health scores
-- **Interactive Visualizations**: Scatter plots, heatmaps, and network graphs
+- **Interactive Visualizations**: Scatter plots, heatmaps, and residual plots
 
 ### AI-Powered Insights
 - **Natural Language Explanations**: AI-generated interpretations of analysis results
@@ -127,7 +127,7 @@ All endpoints require a token parameter. For development, use `token=dev_token`.
 - `POST /upload/model-and-data` - Upload model and dataset
 - `POST /upload/model-and-separate-datasets` - Upload model with separate train/test data
 - `GET /analysis/overview` - Get model overview and performance metrics
-- `GET /analysis/classification-stats` - Get detailed classification statistics
+- `GET /analysis/regression-stats` - Get detailed regression statistics
 - `GET /analysis/feature-importance` - Get feature importance rankings
 
 ### Explainability Endpoints
@@ -138,8 +138,7 @@ All endpoints require a token parameter. For development, use `token=dev_token`.
 
 ### Advanced Analysis
 - `POST /api/correlation` - Feature correlation analysis
-- `POST /api/roc-analysis` - ROC curve analysis
-- `POST /api/threshold-analysis` - Threshold optimization
+- `POST /api/residual-analysis` - Residual analysis and diagnostics
 - `POST /api/partial-dependence` - Partial dependence plots
 - `POST /api/interaction-network` - Feature interaction network
 
@@ -149,14 +148,15 @@ All endpoints require a token parameter. For development, use `token=dev_token`.
 - **scikit-learn**: `.joblib`, `.pkl`, `.pickle` files
 
 ### Model Types
-- **Binary Classification**: Logistic Regression, Random Forest, SVM, XGBoost, etc.
-- **Multiclass Classification**: Support for multi-class problems
-- **Tree-based Models**: Enhanced support for decision trees and ensembles
+- **Linear Regression**: Linear models, Ridge, Lasso, Elastic Net
+- **Tree-based Models**: Random Forest, Gradient Boosting, Decision Trees
+- **Support Vector Regression**: SVR with various kernels
+- **Neural Networks**: MLPRegressor and compatible models
 
 ### Data Formats
 - **CSV Files**: Training and test datasets
 - **Features**: Numeric and categorical features
-- **Target**: Binary and multiclass labels
+- **Target**: Continuous numeric values
 
 ## 🔧 Configuration
 
@@ -175,7 +175,7 @@ STORAGE_DIR=./storage  # Default: backend/storage
 ### Model Requirements
 - Models must be trained and saved using supported formats
 - Feature names should be consistent between training and inference
-- Binary classification models should output probabilities for both classes
+- Regression models should output continuous numeric predictions
 
 ## 📁 Project Structure
 
@@ -206,16 +206,36 @@ ExplainableAI/
 ## 🧪 Testing
 
 ### Sample Data
-The repository includes sample datasets and models for testing:
-- `breast_cancer_dataset.csv` - Binary classification dataset
-- `wine_classification_dataset.csv` - Multiclass classification dataset
-- `loan_approval_dataset.csv` - Credit approval dataset
-- Pre-trained models in `.joblib` format
+The repository includes comprehensive datasets and models for testing:
+
+#### Available Datasets
+- `california_housing_regression.csv` - California housing prices dataset
+- `diabetes_regression.csv` - Diabetes progression dataset  
+- `complex_nonlinear_regression.csv` - Synthetic nonlinear regression dataset
+- `synthetic_polynomial_regression.csv` - Polynomial features dataset
+- `boston_housing_regression.csv` - Boston housing market analysis
+- `energy_efficiency_regression.csv` - Building energy efficiency prediction
+- `concrete_strength_regression.csv` - Concrete compressive strength
+- `wine_quality_regression.csv` - Wine quality scoring
+- `insurance_cost_regression.csv` - Medical insurance cost prediction
+
+#### Pre-trained Models
+Each dataset includes 10 trained models:
+- Linear Regression
+- Ridge Regression  
+- Lasso Regression
+- Elastic Net
+- Decision Tree
+- Random Forest
+- Gradient Boosting
+- Support Vector Regression (SVR)
+- Scaled Linear Regression
+- Scaled SVR
 
 ### Test Scripts
 - `test_upload.py` - Test file upload functionality
-- `test_multiclass.py` - Test multiclass model support
-- `test_decision_tree.py` - Test decision tree analysis
+- `create_regression_datasets.py` - Generate multiple regression datasets
+- `switch_model.py` - Switch between different datasets and models
 - `validate_ui_data_display.py` - Validate frontend integration
 
 ### Running Tests
@@ -223,8 +243,11 @@ The repository includes sample datasets and models for testing:
 # Test backend functionality
 python test_upload.py
 
-# Test multiclass support
-python test_multiclass.py
+# Create multiple regression datasets
+python create_regression_datasets.py
+
+# Switch between models for testing
+python switch_model.py
 
 # Validate API endpoints
 python validate_ui_data_display.py
@@ -256,13 +279,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔄 Recent Updates
 
+- ✅ Comprehensive regression model support
 - ✅ AI-powered explanations with AWS Bedrock integration
-- ✅ Enhanced multiclass classification support
-- ✅ Interactive decision tree visualization
+- ✅ Advanced residual analysis and diagnostic plots
+- ✅ Multiple dataset generation for testing
 - ✅ Feature interaction analysis
 - ✅ Data drift detection
 - ✅ Comprehensive test coverage
-- ✅ ONNX model support
+- ✅ Model switching capabilities
 
 ## 🚧 Roadmap
 
@@ -270,6 +294,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Automated report generation
 - [ ] Model monitoring and alerting
 - [ ] Integration with MLflow/Weights & Biases
-- [ ] Support for regression models
+- [ ] Time series regression support
 - [ ] Advanced feature engineering insights
 - [ ] Model fairness and bias detection
+- [ ] Ensemble model analysis
