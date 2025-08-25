@@ -18,33 +18,18 @@ class FeatureService:
 
     def get_feature_importance(self, method: str) -> Dict[str, Any]:
         """Get feature importance using specified method (shap, builtin, etc.)."""
-        self.base._is_ready()
+        # Use the advanced method but return simplified format for backward compatibility
+        advanced_result = self.compute_feature_importance_advanced(method, 'importance', 20, 'bar')
         
-        if method == 'shap':
-            if self.base.shap_values is None:
-                raise ValueError("SHAP values not available. Make sure the model supports SHAP analysis.")
-            
-            # Get SHAP values for analysis
-            shap_vals = self.base._get_shap_values_for_analysis()
-            if shap_vals is not None:
-                importance_values = np.abs(shap_vals).mean(axis=0)
-            else:
-                raise ValueError("Failed to compute SHAP-based feature importance.")
-                
-        else:            
-            # Try to get feature importance from the model
-            if hasattr(self.base.model, 'feature_importances_'):
-                importance_values = self.base.model.feature_importances_
-            elif hasattr(self.base.model.model, 'feature_importances_'):
-                importance_values = self.base.model.model.feature_importances_
-            else:
-                raise ValueError(f"Method '{method}' not supported or model doesn't have feature_importances_ attribute.")
-
-        sorted_indices = np.argsort(importance_values)[::-1]
+        # Handle error cases
+        if 'error' in advanced_result:
+            raise ValueError(advanced_result['error'])
+        
+        # Convert to legacy format
         features = [{
-            "name": self.base.feature_names[idx],
-            "importance": float(importance_values[idx])
-        } for idx in sorted_indices]
+            "name": item["name"],
+            "importance": item["importance_score"]
+        } for item in advanced_result["features"]]
         
         return {"method": method, "features": features}
 
@@ -132,24 +117,38 @@ class FeatureService:
             return self._importance_cache[key]
 
         method = method.lower()
-        if method == 'shap':
-            if self.base.shap_values is None:
-                raise ValueError("SHAP values not available for this model.")
-            
-            shap_vals = self.base._get_shap_values_for_analysis()
-            if shap_vals is not None:
-                raw_importance = np.abs(shap_vals).mean(axis=0)
+        
+        try:
+            if method == 'shap':
+                raw_importance = self._compute_shap_importance()
+            elif method == 'permutation':
+                raw_importance = self._compute_permutation_importance()
+            elif method in ('gain', 'builtin'):
+                raw_importance = self._compute_gain_importance()
             else:
-                raise ValueError("Failed to compute SHAP-based feature importance.")
+                raise ValueError(f"Unsupported importance method: {method}")
                 
-        elif method in ('permutation', 'gain', 'builtin'):
-            if hasattr(self.base.model, 'feature_importances_'):
-                raw_importance = self.base.model.feature_importances_
-            else:
-                raise ValueError(f"Model doesn't support {method} feature importance.")
-        else:
-            raise ValueError(f"Unsupported importance method: {method}")
+        except Exception as e:
+            # Return error response that frontend can handle
+            error_payload = {
+                "error": str(e),
+                "total_features": len(self.base.feature_names),
+                "positive_impact_count": 0,
+                "negative_impact_count": 0,
+                "features": [],
+                "computation_method": method,
+                "computed_at": pd.Timestamp.utcnow().isoformat()
+            }
+            
+            # Add fallback suggestion
+            if method == 'shap':
+                error_payload["suggested_fallback"] = "gain"
+            elif method == 'gain':
+                error_payload["suggested_fallback"] = "permutation"
+                
+            return error_payload
 
+        # Build feature importance items
         items = []
         for idx, name in enumerate(self.base.feature_names):
             importance = float(raw_importance[idx])
@@ -157,7 +156,8 @@ class FeatureService:
             
             items.append({
                 "name": name,
-                "importance": importance,
+                "importance_score": abs(importance),  # Always positive for sorting
+                "importance": importance,  # Original value (can be negative)
                 "impact_direction": impact_direction,
                 "rank": 0  # Will be set after sorting
             })
@@ -167,8 +167,8 @@ class FeatureService:
             items.sort(key=lambda x: x['name'])
         elif sort_by == 'impact':
             items.sort(key=lambda x: abs(x['importance']), reverse=True)
-        else:            
-            items.sort(key=lambda x: x['importance'], reverse=True)
+        else:  # sort by importance            
+            items.sort(key=lambda x: x['importance_score'], reverse=True)
 
         # Assign ranks after sort
         for i, it in enumerate(items):
@@ -182,11 +182,61 @@ class FeatureService:
             "negative_impact_count": sum(1 for i in items if i['impact_direction'] == 'negative'),
             "features": top_items,
             "computation_method": method,
-            "computed_at": pd.Timestamp.utcnow().isoformat()
+            "computed_at": pd.Timestamp.utcnow().isoformat(),
+            "visualization_type": visualization,
+            "sort_by": sort_by
         }
         
         self._importance_cache[key] = payload
         return payload
+
+    def _compute_shap_importance(self) -> np.ndarray:
+        """Compute SHAP-based feature importance."""
+        if self.base.shap_values is None:
+            raise ValueError("SHAP values are not available for this model. Try using 'gain' or 'permutation' method instead.")
+        
+        shap_vals = self.base._get_shap_values_for_analysis()
+        if shap_vals is None:
+            raise ValueError("Failed to compute SHAP-based feature importance.")
+        
+        # For regression, we use mean absolute SHAP values across all instances
+        return np.abs(shap_vals).mean(axis=0)
+
+    def _compute_permutation_importance(self) -> np.ndarray:
+        """Compute permutation-based feature importance."""
+        from sklearn.inspection import permutation_importance
+        
+        try:
+            # Use test data for permutation importance
+            X_test = self.base.X_test if hasattr(self.base, 'X_test') and self.base.X_test is not None else self.base.X_df
+            y_test = self.base.y_test if hasattr(self.base, 'y_test') and self.base.y_test is not None else self.base.y_df.values
+            
+            # Compute permutation importance
+            perm_importance = permutation_importance(
+                self.base.model,
+                X_test,
+                y_test,
+                n_repeats=10,
+                random_state=42,
+                scoring='neg_mean_squared_error',
+                n_jobs=1  # Avoid multiprocessing issues
+            )
+            
+            return perm_importance.importances_mean
+            
+        except Exception as e:
+            raise ValueError(f"Failed to compute permutation importance: {str(e)}")
+
+    def _compute_gain_importance(self) -> np.ndarray:
+        """Compute gain-based (builtin) feature importance."""
+        if not hasattr(self.base.model, 'feature_importances_'):
+            # Try to get feature importance from wrapped model
+            if hasattr(self.base.model, 'model') and hasattr(self.base.model.model, 'feature_importances_'):
+                return self.base.model.model.feature_importances_
+            else:
+                raise ValueError("Model doesn't support gain-based feature importance. Try using 'permutation' method instead.")
+        
+        return self.base.model.feature_importances_
 
     def get_feature_interactions(self, feature1: str, feature2: str) -> Dict[str, Any]:
         """Get feature interaction analysis (simplified version)."""

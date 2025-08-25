@@ -172,17 +172,17 @@ class InteractionService:
         # Get feature values
         f1_values = sample_df[feature1]
         f2_values = sample_df[feature2]
-        target_values = sample_y
+        target_values = sample_y.values.flatten() if hasattr(sample_y, 'values') else sample_y
         
-        # Get predictions for the sample
-        predictions = self.base.safe_predict_proba(sample_df)[:, 1]
+        # Get predictions for the sample (regression predictions)
+        predictions = self.base.model.predict(sample_df)
         
         # Prepare data for scatter plot
         scatter_data = {
             "feature1_values": f1_values.tolist(),
             "feature2_values": f2_values.tolist(),
             "predictions": predictions.tolist(),
-            "actual_labels": target_values.tolist()
+            "actual_targets": target_values.tolist()  # Changed from actual_labels to actual_targets
         }
         
         # Add color-by feature if specified
