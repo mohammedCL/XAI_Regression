@@ -295,7 +295,7 @@ class AnalysisService:
             confidence = 1.0 - (error / max_error) if max_error > 0 else 1.0
             
             records.append({
-                "index": idx,
+                "id": idx,  # Changed from "index" to "id" to match frontend expectations
                 "prediction": pred_value,
                 "actual": actual_value,
                 "confidence": float(confidence),

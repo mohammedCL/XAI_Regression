@@ -115,6 +115,7 @@ class BaseModelService:
         self.target_name: Optional[str] = None
         self.explainer: Optional[shap.TreeExplainer] = None
         self.shap_values: Optional[np.ndarray] = None
+        self._cached_predictions: Optional[np.ndarray] = None
         self.model_info: Dict[str, Any] = {}
         
         print("BaseModelService initialized. Waiting for model and data.")
@@ -240,6 +241,15 @@ class BaseModelService:
                 print(f"Failed to initialize SHAP explainer: {e}")
                 self.explainer = None
                 self.shap_values = None
+            
+            # Cache predictions for the training set for faster individual predictions
+            try:
+                print("Caching predictions for training set...")
+                self._cached_predictions = self.safe_predict(self.X_df)
+                print(f"Cached {len(self._cached_predictions)} predictions.")
+            except Exception as e:
+                print(f"Failed to cache predictions: {e}")
+                self._cached_predictions = None
             
             return {
                 "message": "Model and data loaded successfully",

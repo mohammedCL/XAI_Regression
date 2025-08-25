@@ -12,6 +12,32 @@ class PredictionService:
     def __init__(self, base_service: BaseModelService):
         self.base = base_service
 
+    def _get_single_instance_shap(self, instance_idx: int, instance_df: pd.DataFrame) -> np.ndarray:
+        """Compute SHAP values for a single instance on-demand."""
+        if self.base.explainer is None:
+            return np.zeros(len(self.base.feature_names))
+        
+        try:
+            # Compute SHAP values for this single instance
+            shap_vals = self.base.explainer.shap_values(instance_df)
+            
+            # Handle different SHAP return formats
+            if isinstance(shap_vals, list):
+                # Multi-class case, take first class for regression
+                shap_vals = shap_vals[0] if len(shap_vals) > 0 else np.zeros((1, len(self.base.feature_names)))
+            
+            if isinstance(shap_vals, np.ndarray):
+                if shap_vals.ndim == 2:
+                    # Return the first (and only) row
+                    return shap_vals[0].astype(float)
+                elif shap_vals.ndim == 1:
+                    return shap_vals.astype(float)
+            
+            return np.zeros(len(self.base.feature_names))
+        except Exception as e:
+            print(f"Error computing SHAP for single instance: {e}")
+            return np.zeros(len(self.base.feature_names))
+
     def individual_prediction(self, instance_idx: int) -> Dict[str, Any]:
         """Get detailed prediction analysis for a single instance."""
         self.base._is_ready()
@@ -28,13 +54,28 @@ class PredictionService:
         prediction_error = abs(prediction_value - actual_value)
         
         # For regression, confidence is based on prediction uncertainty
-        # Simple heuristic: smaller residuals suggest higher confidence
-        all_predictions = self.base.safe_predict(self.base.X_df)
-        all_errors = np.abs(all_predictions - self.base.y_s)
+        # Use cached predictions if available, otherwise compute for a sample
+        if hasattr(self.base, '_cached_predictions') and self.base._cached_predictions is not None:
+            all_predictions = self.base._cached_predictions
+            all_errors = np.abs(all_predictions - self.base.y_s)
+        else:
+            # Use a sample for efficiency instead of full dataset
+            sample_size = min(1000, len(self.base.X_df))
+            sample_indices = np.random.choice(len(self.base.X_df), sample_size, replace=False)
+            sample_X = self.base.X_df.iloc[sample_indices]
+            sample_y = self.base.y_s.iloc[sample_indices]
+            sample_predictions = self.base.safe_predict(sample_X)
+            all_errors = np.abs(sample_predictions - sample_y)
+        
         max_error = np.max(all_errors) if len(all_errors) > 0 else 1.0
         confidence = 1.0 - (prediction_error / max_error) if max_error > 0 else 1.0
         
-        shap_vals_for_instance = self.base._get_instance_shap_vector(instance_idx)
+        # Get SHAP values for this specific instance
+        try:
+            shap_vals_for_instance = self._get_single_instance_shap(instance_idx, instance_df)
+        except Exception as e:
+            print(f"SHAP computation failed for instance {instance_idx}: {e}")
+            shap_vals_for_instance = np.zeros(len(self.base.feature_names))
         
         # Handle case where explainer might not be available
         base_value = 0.0
@@ -73,7 +114,16 @@ class PredictionService:
             raise ValueError(f"Instance index {instance_idx} is out of range. Dataset has {len(self.base.X_df)} instances.")
             
         instance_data = self.base.X_df.iloc[instance_idx]
-        shap_vals_for_instance = self.base._get_instance_shap_vector(instance_idx)
+        
+        # Create single-row DataFrame for prediction to maintain feature names
+        instance_df = pd.DataFrame([instance_data], columns=self.base.feature_names)
+        
+        # Get SHAP values for this specific instance
+        try:
+            shap_vals_for_instance = self._get_single_instance_shap(instance_idx, instance_df)
+        except Exception as e:
+            print(f"SHAP computation failed for instance {instance_idx}: {e}")
+            shap_vals_for_instance = np.zeros(len(self.base.feature_names))
         
         # Handle case where explainer might not be available
         base_value = 0.0
@@ -83,10 +133,7 @@ class PredictionService:
             else:
                 base_value = float(self.base.explainer.expected_value)
 
-        # Create single-row DataFrame for prediction to maintain feature names
-        instance_df = pd.DataFrame([instance_data], columns=self.base.feature_names)
-        
-        # Regression model
+        # Regression model prediction
         prediction_value = float(self.base.safe_predict(instance_df)[0])
         actual_value = float(self.base.y_s.iloc[instance_idx])
 
