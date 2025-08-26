@@ -4,9 +4,14 @@ from sklearn.metrics import (
     r2_score, mean_squared_error, mean_absolute_error,
     mean_absolute_percentage_error
 )
+from sklearn.model_selection import train_test_split
 import shap
 import joblib
 import pickle
+import requests
+import tempfile
+import os
+from urllib.parse import urlparse, parse_qs
 from typing import Dict, Any, List, Optional
 
 # We only support scikit-learn models to preserve tree structure for explainability
@@ -122,6 +127,12 @@ class BaseModelService:
 
     def _load_model_by_format(self, model_path: str) -> ModelWrapper:
         """Load model based on file extension and return wrapped model."""
+        
+        # Check if it's a URL (S3 pre-signed URL)
+        if model_path.startswith(('http://', 'https://')):
+            return self._load_model_from_presigned_url(model_path)
+        
+        # Handle local file paths
         file_extension = model_path.lower()
         
         if file_extension.endswith(('.joblib', '.pkl', '.pickle')):
@@ -137,6 +148,114 @@ class BaseModelService:
                 raise ValueError(f"Failed to load sklearn model from {model_path}: {str(e)}")
         else:
             raise ValueError(f"Unsupported model format. Expected .joblib, .pkl, or .pickle, got {file_extension}")
+
+    def _load_model_from_presigned_url(self, url: str) -> ModelWrapper:
+        """Load model directly from S3 pre-signed URL."""
+        
+        print(f"📥 Downloading model from S3...")
+        
+        # Parse URL to extract useful debugging info
+        parsed = urlparse(url)
+        query_params = parse_qs(parsed.query)
+        
+        # Check for common issues with pre-signed URLs
+        if 'X-Amz-Date' in query_params:
+            print(f"🕒 Pre-signed URL date: {query_params['X-Amz-Date'][0]}")
+        if 'X-Amz-Expires' in query_params:
+            print(f"⏰ URL expires in: {query_params['X-Amz-Expires'][0]} seconds")
+        
+        try:
+            response = requests.get(url, stream=True, timeout=30)
+            
+            # Check response status before raising for status
+            if response.status_code == 403:
+                print(f"❌ Access denied (403). Pre-signed URL may have expired or lacks permissions.")
+                print(f"🔗 URL path: {parsed.path}")
+                raise ValueError(f"S3 access denied. The pre-signed URL may have expired or lacks proper permissions. Status: {response.status_code}")
+            elif response.status_code == 404:
+                print(f"❌ File not found (404). The model file may not exist at the specified location.")
+                raise ValueError(f"Model file not found at S3 location. Status: {response.status_code}")
+            elif response.status_code != 200:
+                print(f"❌ Unexpected HTTP status: {response.status_code}")
+                print(f"📄 Response content: {response.text[:200]}")
+                raise ValueError(f"Failed to download model from S3. HTTP Status: {response.status_code}")
+            
+            response.raise_for_status()  # This should now only raise for 200s that somehow failed
+            
+            print(f"✅ Successfully connected to S3. Content-Length: {response.headers.get('Content-Length', 'unknown')}")
+            
+        except requests.exceptions.Timeout:
+            raise ValueError("S3 download timed out after 30 seconds. Please check your internet connection.")
+        except requests.exceptions.ConnectionError:
+            raise ValueError("Failed to connect to S3. Please check your internet connection.")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Network error while downloading from S3: {str(e)}")
+        
+        # Determine file extension from URL (before query parameters)
+        file_path = parsed.path
+        
+        if file_path.lower().endswith('.joblib'):
+            model_bytes = response.content
+            print(f"📦 Downloaded {len(model_bytes)} bytes for .joblib model")
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.joblib') as tmp_file:
+                tmp_file.write(model_bytes)
+                tmp_path = tmp_file.name
+            
+            try:
+                model = joblib.load(tmp_path)
+                print(f"✅ Successfully loaded .joblib model: {type(model).__name__}")
+                return ModelWrapper(model, "sklearn")
+            except Exception as e:
+                raise ValueError(f"Failed to load .joblib model: {str(e)}")
+            finally:
+                os.unlink(tmp_path)
+                
+        elif file_path.lower().endswith(('.pkl', '.pickle')):
+            model_bytes = response.content
+            print(f"📦 Downloaded {len(model_bytes)} bytes for .pkl model")
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmp_file:
+                tmp_file.write(model_bytes)
+                tmp_path = tmp_file.name
+            
+            try:
+                with open(tmp_path, 'rb') as f:
+                    model = pickle.load(f)
+                print(f"✅ Successfully loaded .pkl model: {type(model).__name__}")
+                return ModelWrapper(model, "sklearn")
+            except Exception as e:
+                raise ValueError(f"Failed to load .pkl model: {str(e)}")
+            finally:
+                os.unlink(tmp_path)
+        else:
+            raise ValueError(f"Unsupported model format in URL: {file_path}. Supported formats: .joblib, .pkl, .pickle")
+
+    def _load_data_from_url(self, url: str) -> pd.DataFrame:
+        """Load CSV data from URL with error handling."""
+        
+        print(f"📥 Loading data from URL...")
+        
+        try:
+            # Pandas can read directly from URLs, but let's add some validation
+            parsed = urlparse(url)
+            
+            if not parsed.path.lower().endswith('.csv'):
+                print(f"⚠️  Warning: URL doesn't end with .csv: {parsed.path}")
+            
+            # Use pandas to read directly from URL (most efficient)
+            df = pd.read_csv(url)
+            print(f"✅ Successfully loaded {len(df)} rows and {len(df.columns)} columns from URL")
+            return df
+            
+        except pd.errors.EmptyDataError:
+            raise ValueError("The CSV file at the URL is empty")
+        except pd.errors.ParserError as e:
+            raise ValueError(f"Failed to parse CSV from URL: {str(e)}")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Network error while downloading CSV from URL: {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Failed to load data from URL: {str(e)}")
 
     def _detect_model_framework(self, model_wrapper: ModelWrapper) -> str:
         """Detect the framework used to create the model."""
@@ -161,6 +280,192 @@ class BaseModelService:
         else:
             return "Unknown"
 
+    
+    def load_model_and_datasets(self, model_path: str, data_path: str = None, train_data_path: str = None, test_data_path: str = None, target_column: Optional[str] = None, test_size: float = 0.2, random_state: int = 42):
+        """Unified method to load model and dataset(s) from local files or S3.
+        
+        Args:
+            model_path: Path to model file (local or S3 URL)
+            data_path: Path to single dataset (for train/test splitting)
+            train_data_path: Path to training dataset
+            test_data_path: Path to test dataset  
+            target_column: Name of target column
+            test_size: Proportion of data for test set (when splitting single dataset)
+            random_state: Random state for reproducible splitting
+        """
+        from sklearn.model_selection import train_test_split
+        
+        try:
+            # Validate input parameters
+            if not (train_data_path and test_data_path) and not data_path:
+                raise ValueError("Must provide either data_path OR both train_data_path and test_data_path")
+            
+            # Load model
+            if model_path.startswith('https://') and 's3.amazonaws.com' in model_path:
+                print("🔗 Detected S3 pre-signed URL for model, loading directly...")
+                print(f"⬇️ Loading model from: {model_path}")
+                model_wrapper = self._load_model_from_presigned_url(model_path)
+            else:
+                print(f"📁 Loading model from local path: {model_path}")
+                model_wrapper = self._load_model_by_format(model_path)
+            
+            self.model = model_wrapper
+            
+            # Handle single dataset case (split into train/test)
+            if data_path:
+                print("📊 Single dataset mode: will split into train/test")
+                
+                # Load dataset
+                if data_path.startswith(('http://', 'https://')):
+                    print(f"⬇️ Loading dataset from URL: {data_path}")
+                    df = self._load_data_from_url(data_path)
+                else:
+                    print(f"📁 Loading dataset from local path: {data_path}")
+                    df = pd.read_csv(data_path)
+                
+                # Validate target column exists
+                if target_column not in df.columns:
+                    raise ValueError(f"Target column '{target_column}' not found in the dataset.")
+                
+                # Split features and target
+                X = df.drop(columns=[target_column])
+                y = df[target_column]
+                
+                # Split into train/test
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=test_size, random_state=random_state, stratify=y
+                )
+                
+                message = f"Model and dataset loaded successfully (split into train/test)"
+                split_info = f"test_size={test_size}, random_state={random_state}"
+                
+            # Handle separate datasets case
+            else:
+                print("📊 Separate datasets mode: using provided train/test files")
+                
+                # Load training dataset
+                if train_data_path.startswith(('http://', 'https://')):
+                    print(f"⬇️ Loading training data from URL: {train_data_path}")
+                    train_df = self._load_data_from_url(train_data_path)
+                else:
+                    print(f"📁 Loading training data from local path: {train_data_path}")
+                    train_df = pd.read_csv(train_data_path)
+                
+                # Load test dataset
+                if test_data_path.startswith(('http://', 'https://')):
+                    print(f"⬇️ Loading test data from URL: {test_data_path}")
+                    test_df = self._load_data_from_url(test_data_path)
+                else:
+                    print(f"📁 Loading test data from local path: {test_data_path}")
+                    test_df = pd.read_csv(test_data_path)
+
+                # Validate target column exists in both datasets
+                if target_column not in train_df.columns:
+                    raise ValueError(f"Target column '{target_column}' not found in the training dataset.")
+                if target_column not in test_df.columns:
+                    raise ValueError(f"Target column '{target_column}' not found in the test dataset.")
+
+                # Validate feature columns match
+                train_features = set(train_df.drop(columns=[target_column]).columns)
+                test_features = set(test_df.drop(columns=[target_column]).columns)
+                if train_features != test_features:
+                    missing_in_test = train_features - test_features
+                    missing_in_train = test_features - train_features
+                    error_msg = "Feature columns mismatch between train and test datasets."
+                    if missing_in_test:
+                        error_msg += f" Missing in test: {missing_in_test}."
+                    if missing_in_train:
+                        error_msg += f" Missing in train: {missing_in_train}."
+                    raise ValueError(error_msg)
+
+                # Extract features and targets
+                X_train = train_df.drop(columns=[target_column])
+                y_train = train_df[target_column]
+                X_test = test_df.drop(columns=[target_column])
+                y_test = test_df[target_column]
+                
+                message = f"Model and datasets loaded successfully"
+                split_info = None
+            
+            # Store data
+            self.X_train = X_train
+            self.y_train = y_train
+            self.X_test = X_test  
+            self.y_test = y_test
+            
+            # Backward compatibility - point to train data
+            self.X_df = self.X_train
+            self.y_s = self.y_train
+            self.feature_names = list(X_train.columns)
+            self.target_name = target_column
+            
+            # Initialize SHAP explainer
+            self._initialize_shap_explainer(model_wrapper)
+
+            # Calculate dataset statistics for model_info
+            # Combine train and test data for overall statistics
+            if data_path:
+                # For single dataset case, use the original combined data
+                combined_df = pd.concat([X_train, X_test], ignore_index=True)
+                data_path_used = data_path
+            else:
+                # For separate datasets case, combine train and test for stats
+                combined_df = pd.concat([X_train, X_test], ignore_index=True)
+                data_path_used = f"train: {train_data_path}, test: {test_data_path}"
+            
+            num_rows = len(combined_df)
+            missing_count = combined_df.isnull().sum().sum()
+            total_cells = combined_df.size
+            missing_ratio = missing_count / total_cells if total_cells > 0 else 0.0
+            
+            # Calculate duplicate ratio
+            duplicate_count = combined_df.duplicated().sum()
+            duplicate_ratio = duplicate_count / num_rows if num_rows > 0 else 0.0
+
+            # Set comprehensive model info
+            self.model_info = {
+                "target_column": target_column,
+                "features_count": len(self.feature_names),
+                "data_shape": combined_df.shape,
+                "algorithm": self._get_model_algorithm(model_wrapper),
+                "framework": self._detect_model_framework(model_wrapper),
+                "model_type": model_wrapper.model_type,
+                "type": "classification" if hasattr(model_wrapper.model, "predict_proba") else "regression",
+                "version": "1.0.0",
+                "created": pd.Timestamp.utcnow().isoformat(),
+                "last_trained": pd.Timestamp.utcnow().isoformat(),
+                "samples": int(num_rows),
+                "features": int(len(self.feature_names)),
+                "missing_pct": missing_ratio * 100.0,
+                "duplicates_pct": duplicate_ratio * 100.0,
+                "status": "Active",
+                "health_score_pct": max(0.0, 100.0 - (missing_ratio * 100.0 * 0.5 + duplicate_ratio * 100.0 * 0.5)),
+                "train_samples": len(self.X_train),
+                "test_samples": len(self.X_test),
+                "training_samples": len(self.X_train),  # Backward compatibility
+                "test_samples": len(self.X_test),       # Backward compatibility  
+                "shap_available": self.explainer is not None
+            }
+            
+            # Add split info if available
+            if split_info:
+                self.model_info["split_info"] = split_info
+
+            return {
+                "status": "success",
+                "message": message,
+                "model_info": self.model_info,
+                "features": self.feature_names,
+                "target": self.target_name,
+                "train_shape": self.X_train.shape,
+                "test_shape": self.X_test.shape
+            }
+
+        except Exception as e:
+            # Reset state on failure
+            self.__init__()
+            raise e
+        
     def load_model_and_data(self, model_path: str, data_path: str, target_column: str):
         """Loads the model and dataset from local files and prepares for analysis."""
         try:
@@ -169,10 +474,14 @@ class BaseModelService:
             self.model = model_wrapper
             
             # Load data
-            if not data_path.endswith('.csv'):
-                raise ValueError("Only CSV data files are supported.")
-            
-            df = pd.read_csv(data_path)
+            if data_path.startswith(('http://', 'https://')):
+                print(f"⬇️ Loading data from URL: {data_path}")
+                df = self._load_data_from_url(data_path)
+            else:
+                if not data_path.endswith('.csv'):
+                    raise ValueError("Only CSV data files are supported.")
+                print(f"📁 Loading data from local path: {data_path}")
+                df = pd.read_csv(data_path)
             
             if target_column not in df.columns:
                 raise ValueError(f"Target column '{target_column}' not found in dataset.")
@@ -276,19 +585,27 @@ class BaseModelService:
             self.model = model_wrapper
             
             # Load training data
-            if not train_data_path.endswith('.csv'):
-                raise ValueError("Only CSV data files are supported.")
-            
-            train_df = pd.read_csv(train_data_path)
+            if train_data_path.startswith(('http://', 'https://')):
+                print(f"⬇️ Loading training data from URL: {train_data_path}")
+                train_df = self._load_data_from_url(train_data_path)
+            else:
+                if not train_data_path.endswith('.csv'):
+                    raise ValueError("Only CSV data files are supported.")
+                print(f"📁 Loading training data from local path: {train_data_path}")
+                train_df = pd.read_csv(train_data_path)
             
             if target_column not in train_df.columns:
                 raise ValueError(f"Target column '{target_column}' not found in training dataset.")
             
             # Load test data
-            if not test_data_path.endswith('.csv'):
-                raise ValueError("Only CSV data files are supported.")
-            
-            test_df = pd.read_csv(test_data_path)
+            if test_data_path.startswith(('http://', 'https://')):
+                print(f"⬇️ Loading test data from URL: {test_data_path}")
+                test_df = self._load_data_from_url(test_data_path)
+            else:
+                if not test_data_path.endswith('.csv'):
+                    raise ValueError("Only CSV data files are supported.")
+                print(f"📁 Loading test data from local path: {test_data_path}")
+                test_df = pd.read_csv(test_data_path)
             
             if target_column not in test_df.columns:
                 raise ValueError(f"Target column '{target_column}' not found in test dataset.")
@@ -475,6 +792,76 @@ class BaseModelService:
             return float(value)
         except Exception:
             return value
+
+    def _initialize_shap_explainer(self, model_wrapper: ModelWrapper):
+        """Initialize SHAP explainer and compute SHAP values."""
+        print("Creating SHAP explainer...")
+        try:
+            if model_wrapper.model_type == "sklearn":
+                try:
+                    self.explainer = shap.TreeExplainer(model_wrapper.model)
+                except Exception as e:
+                    print(f"Warning: Could not create SHAP TreeExplainer: {e}")
+                    try:
+                        # Fallback to general explainer
+                        sample_size = min(100, len(self.X_train))
+                        background_data = self.X_train.values[:sample_size]
+                        self.explainer = shap.Explainer(model_wrapper.predict, background_data)
+                    except Exception as e2:
+                        print(f"Warning: Could not create SHAP Explainer: {e2}")
+                        try:
+                            # Try KernelExplainer as final fallback
+                            sample_size = min(50, len(self.X_train))
+                            background_data = self.X_train.values[:sample_size]
+                            self.explainer = shap.KernelExplainer(model_wrapper.predict, background_data)
+                        except Exception as e3:
+                            print(f"Warning: Could not create SHAP KernelExplainer: {e3}")
+                            self.explainer = None
+            else:
+                # For non-sklearn models, use a different SHAP explainer
+                try:
+                    # Use a smaller sample for initialization to avoid memory issues
+                    sample_size = min(50, len(self.X_train))
+                    background_data = self.X_train.values[:sample_size]
+                    self.explainer = shap.Explainer(model_wrapper.predict, background_data)
+                except Exception as e:
+                    print(f"Warning: Could not create SHAP explainer for {model_wrapper.model_type} model: {e}")
+                    try:
+                        # Try with even smaller sample
+                        sample_size = min(10, len(self.X_train))
+                        background_data = self.X_train.values[:sample_size]
+                        self.explainer = shap.KernelExplainer(model_wrapper.predict, background_data)
+                    except Exception as e2:
+                        print(f"Warning: Could not create SHAP KernelExplainer: {e2}")
+                        self.explainer = None
+
+            # Compute SHAP values if explainer is available
+            if self.explainer:
+                try:
+                    print("Computing SHAP values...")
+                    # Use a small sample for SHAP values to avoid memory/computation issues
+                    sample_size = min(100, len(self.X_train))
+                    self.shap_values = self.explainer.shap_values(self.X_train.values[:sample_size])
+                    print(f"SHAP explainer created successfully with sample size {sample_size}.")
+                    
+                    # Log the shape for debugging
+                    if isinstance(self.shap_values, list):
+                        print(f"SHAP values computed as list with {len(self.shap_values)} classes, shapes: {[arr.shape for arr in self.shap_values]}")
+                    else:
+                        print(f"SHAP values computed with shape: {self.shap_values.shape}")
+                        
+                except Exception as e:
+                    print(f"Warning: Could not compute SHAP values: {e}")
+                    self.shap_values = None
+                    self.explainer = None
+            else:
+                self.shap_values = None
+                print("SHAP explainer not available for this model type.")
+                
+        except Exception as e:
+            print(f"Error initializing SHAP: {e}")
+            self.explainer = None
+            self.shap_values = None
 
     def _get_shap_values_for_analysis(self) -> Optional[np.ndarray]:
         """Get SHAP values appropriate for analysis, handling both binary and multiclass cases."""

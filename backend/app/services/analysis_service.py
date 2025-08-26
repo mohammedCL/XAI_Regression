@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
-import matplotlib.pyplot as plt
+
 import io
 import base64
 from typing import Dict, Any, List, Optional
@@ -141,85 +141,71 @@ class AnalysisService:
             }
         }
 
-    def _generate_diagnostic_plots(self, y_true, y_pred, residuals) -> Dict[str, str]:
-        """Generate diagnostic plots for regression analysis."""
+    def _generate_diagnostic_plots(self, y_true, y_pred, residuals) -> Dict[str, Any]:
+        """Generate diagnostic plot data for regression analysis (raw data only, no images)."""
         plots = {}
-        
         try:
             # 1. Residual Plot (Residuals vs Fitted Values)
-            plt.figure(figsize=(8, 6))
-            plt.scatter(y_pred, residuals, alpha=0.6, s=20)
-            plt.axhline(y=0, color='red', linestyle='--', alpha=0.8)
-            plt.xlabel('Fitted Values')
-            plt.ylabel('Residuals')
-            plt.title('Residuals vs Fitted Values')
-            plt.grid(True, alpha=0.3)
-            
-            # Add trend line
+            # Trend line
             z = np.polyfit(y_pred, residuals, 1)
             p = np.poly1d(z)
-            plt.plot(sorted(y_pred), p(sorted(y_pred)), "r--", alpha=0.8)
-            
-            plots['residual_plot'] = self._plot_to_base64()
-            plt.close()
-            
+            y_pred_sorted = np.sort(y_pred)
+            trend_line = p(y_pred_sorted)
+            plots['residual_plot'] = {
+                'fitted_values': y_pred.tolist(),
+                'residuals': residuals.tolist(),
+                'trend_line': {
+                    'x': y_pred_sorted.tolist(),
+                    'y': trend_line.tolist(),
+                    'slope': float(z[0]),
+                    'intercept': float(z[1])
+                }
+            }
+
             # 2. Q-Q Plot for normality check
-            plt.figure(figsize=(8, 6))
-            stats.probplot(residuals, dist="norm", plot=plt)
-            plt.title('Q-Q Plot (Normal Distribution)')
-            plt.grid(True, alpha=0.3)
-            plots['qq_plot'] = self._plot_to_base64()
-            plt.close()
-            
+            (osm, osr), (slope, intercept, r) = stats.probplot(residuals, dist="norm")
+            plots['qq_plot'] = {
+                'theoretical_quantiles': osm.tolist(),
+                'ordered_residuals': osr.tolist(),
+                'slope': float(slope),
+                'intercept': float(intercept),
+                'correlation': float(r)
+            }
+
             # 3. Predicted vs Actual Values
-            plt.figure(figsize=(8, 6))
-            plt.scatter(y_true, y_pred, alpha=0.6, s=20)
-            
-            # Perfect prediction line
-            min_val = min(min(y_true), min(y_pred))
-            max_val = max(max(y_true), max(y_pred))
-            plt.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, label='Perfect Prediction')
-            
-            plt.xlabel('Actual Values')
-            plt.ylabel('Predicted Values')
-            plt.title('Predicted vs Actual Values')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plots['predicted_vs_actual'] = self._plot_to_base64()
-            plt.close()
-            
+            min_val = float(min(min(y_true), min(y_pred)))
+            max_val = float(max(max(y_true), max(y_pred)))
+            plots['predicted_vs_actual'] = {
+                'actual': y_true.tolist(),
+                'predicted': y_pred.tolist(),
+                'perfect_line': {
+                    'x': [min_val, max_val],
+                    'y': [min_val, max_val]
+                }
+            }
+
             # 4. Residual Distribution
-            plt.figure(figsize=(8, 6))
-            plt.hist(residuals, bins=30, density=True, alpha=0.7, color='skyblue', edgecolor='black')
-            
-            # Overlay normal distribution
-            mu, sigma = np.mean(residuals), np.std(residuals)
+            hist, bin_edges = np.histogram(residuals, bins=30, density=True)
+            mu, sigma = float(np.mean(residuals)), float(np.std(residuals))
             x = np.linspace(np.min(residuals), np.max(residuals), 100)
             normal_curve = stats.norm.pdf(x, mu, sigma)
-            plt.plot(x, normal_curve, 'r-', linewidth=2, label=f'Normal (μ={mu:.3f}, σ={sigma:.3f})')
-            
-            plt.xlabel('Residuals')
-            plt.ylabel('Density')
-            plt.title('Residual Distribution')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plots['residual_distribution'] = self._plot_to_base64()
-            plt.close()
-            
+            plots['residual_distribution'] = {
+                'histogram': {
+                    'bin_edges': bin_edges.tolist(),
+                    'counts': hist.tolist()
+                },
+                'normal_curve': {
+                    'x': x.tolist(),
+                    'y': normal_curve.tolist(),
+                    'mu': mu,
+                    'sigma': sigma
+                }
+            }
         except Exception as e:
             print(f"Error generating diagnostic plots: {e}")
             plots = {"error": f"Failed to generate plots: {str(e)}"}
-        
         return plots
 
-    def _plot_to_base64(self) -> str:
-        """Convert current matplotlib plot to base64 string."""
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-        buffer.seek(0)
-        plot_data = buffer.getvalue()
-        buffer.close()
-        return base64.b64encode(plot_data).decode('utf-8')
 
     def _calculate_performance_summary(self, metrics: Dict[str, float], residuals: np.ndarray, 
                                      y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, Any]:

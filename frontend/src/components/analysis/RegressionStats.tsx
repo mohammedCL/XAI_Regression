@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import Plot from 'react-plotly.js';
+import { Target, TrendingUp, Activity, AlertCircle, Loader2, BarChart3 } from 'lucide-react';
 import Card from '../common/Card';
-import MetricCard from '../common/MetricCard';
 import AIExplanationPanel from '../common/AIExplanationPanel';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import { getRegressionStats } from '../../services/api';
@@ -29,10 +30,43 @@ interface PerformanceSummary {
 }
 
 interface DiagnosticPlots {
-    residual_plot: string;
-    qq_plot: string;
-    predicted_vs_actual: string;
-    residual_distribution: string;
+    residual_plot: {
+        fitted_values: number[];
+        residuals: number[];
+        trend_line: {
+            x: number[];
+            y: number[];
+            slope: number;
+            intercept: number;
+        };
+    };
+    qq_plot: {
+        theoretical_quantiles: number[];
+        ordered_residuals: number[];
+        slope: number;
+        intercept: number;
+        correlation: number;
+    };
+    predicted_vs_actual: {
+        actual: number[];
+        predicted: number[];
+        perfect_line: {
+            x: number[];
+            y: number[];
+        };
+    };
+    residual_distribution: {
+        histogram: {
+            bin_edges: number[];
+            counts: number[];
+        };
+        normal_curve: {
+            x: number[];
+            y: number[];
+            mu: number;
+            sigma: number;
+        };
+    };
 }
 
 interface ResidualStats {
@@ -87,27 +121,163 @@ const RegressionStats: React.FC = () => {
             case 'moderate': return 'text-yellow-600';
             default: return 'text-red-600';
         }
-    }; if (loading) {
+    };
+
+    // Memoize Plotly chart data for performance
+    const plotlyData = React.useMemo(() => {
+        if (!data?.diagnostic_plots) return null;
+
+        const plots = data.diagnostic_plots;
+        
+        return {
+            residualPlot: {
+                data: [
+                    {
+                        x: plots.residual_plot.fitted_values,
+                        y: plots.residual_plot.residuals,
+                        mode: 'markers' as const,
+                        type: 'scatter' as const,
+                        name: 'Residuals',
+                        marker: { color: '#3b82f6', size: 6, opacity: 0.7 }
+                    },
+                    {
+                        x: plots.residual_plot.trend_line.x,
+                        y: plots.residual_plot.trend_line.y,
+                        mode: 'lines' as const,
+                        type: 'scatter' as const,
+                        name: 'Trend Line',
+                        line: { color: '#ef4444', width: 2 }
+                    }
+                ],
+                layout: {
+                    title: { text: 'Residuals vs Fitted Values' },
+                    xaxis: { title: { text: 'Fitted Values' } },
+                    yaxis: { title: { text: 'Residuals' } },
+                    showlegend: true,
+                    height: 350,
+                    margin: { l: 50, r: 50, t: 50, b: 50 }
+                }
+            },
+            qqPlot: {
+                data: [
+                    {
+                        x: plots.qq_plot.theoretical_quantiles,
+                        y: plots.qq_plot.ordered_residuals,
+                        mode: 'markers' as const,
+                        type: 'scatter' as const,
+                        name: 'Q-Q Points',
+                        marker: { color: '#10b981', size: 6, opacity: 0.7 }
+                    },
+                    {
+                        x: [Math.min(...plots.qq_plot.theoretical_quantiles), Math.max(...plots.qq_plot.theoretical_quantiles)],
+                        y: [
+                            plots.qq_plot.slope * Math.min(...plots.qq_plot.theoretical_quantiles) + plots.qq_plot.intercept,
+                            plots.qq_plot.slope * Math.max(...plots.qq_plot.theoretical_quantiles) + plots.qq_plot.intercept
+                        ],
+                        mode: 'lines' as const,
+                        type: 'scatter' as const,
+                        name: 'Normal Line',
+                        line: { color: '#f59e0b', width: 2 }
+                    }
+                ],
+                layout: {
+                    title: { text: 'Q-Q Plot (Normality Check)' },
+                    xaxis: { title: { text: 'Theoretical Quantiles' } },
+                    yaxis: { title: { text: 'Ordered Residuals' } },
+                    showlegend: true,
+                    height: 350,
+                    margin: { l: 50, r: 50, t: 50, b: 50 }
+                }
+            },
+            predictedVsActual: {
+                data: [
+                    {
+                        x: plots.predicted_vs_actual.actual,
+                        y: plots.predicted_vs_actual.predicted,
+                        mode: 'markers' as const,
+                        type: 'scatter' as const,
+                        name: 'Predictions',
+                        marker: { color: '#8b5cf6', size: 6, opacity: 0.7 }
+                    },
+                    {
+                        x: plots.predicted_vs_actual.perfect_line.x,
+                        y: plots.predicted_vs_actual.perfect_line.y,
+                        mode: 'lines' as const,
+                        type: 'scatter' as const,
+                        name: 'Perfect Line',
+                        line: { color: '#dc2626', width: 2 }
+                    }
+                ],
+                layout: {
+                    title: { text: 'Predicted vs Actual Values' },
+                    xaxis: { title: { text: 'Actual Values' } },
+                    yaxis: { title: { text: 'Predicted Values' } },
+                    showlegend: true,
+                    height: 350,
+                    margin: { l: 50, r: 50, t: 50, b: 50 }
+                }
+            },
+            residualDistribution: {
+                data: [
+                    {
+                        x: plots.residual_distribution.histogram.bin_edges.slice(0, -1),
+                        y: plots.residual_distribution.histogram.counts,
+                        type: 'bar' as const,
+                        name: 'Histogram',
+                        marker: { color: '#f97316', opacity: 0.8 }
+                    },
+                    {
+                        x: plots.residual_distribution.normal_curve.x,
+                        y: plots.residual_distribution.normal_curve.y,
+                        mode: 'lines' as const,
+                        type: 'scatter' as const,
+                        name: 'Normal Curve',
+                        line: { color: '#059669', width: 2 },
+                        yaxis: 'y2'
+                    }
+                ],
+                layout: {
+                    title: { text: 'Residual Distribution' },
+                    xaxis: { title: { text: 'Residuals' } },
+                    yaxis: { title: { text: 'Density (Histogram)' } },
+                    yaxis2: { 
+                        title: { text: 'Normal Curve' }, 
+                        overlaying: 'y' as const, 
+                        side: 'right' as const,
+                        showgrid: false
+                    },
+                    showlegend: true,
+                    height: 350,
+                    margin: { l: 50, r: 50, t: 50, b: 50 }
+                }
+            }
+        };
+    }, [data?.diagnostic_plots]); 
+    
+    if (loading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <div className="p-6 flex justify-center items-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
             </div>
         );
     }
 
     if (error) {
         return (
-            <Card>
-                <div className="text-red-600 text-center">
-                    <p>{error}</p>
-                    <button
-                        onClick={fetchRegressionStats}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                        Retry
-                    </button>
-                </div>
-            </Card>
+            <div className="p-6 bg-gray-50 dark:bg-gray-800">
+                <Card>
+                    <div className="text-red-600 text-center">
+                        <AlertCircle className="w-6 h-6 mx-auto mb-2" />
+                        <p>{error}</p>
+                        <button
+                            onClick={fetchRegressionStats}
+                            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                </Card>
+            </div>
         );
     }
 
@@ -116,27 +286,30 @@ const RegressionStats: React.FC = () => {
     // Add comprehensive null checks for nested data structures
     if (!data.metrics || !data.performance_summary || !data.performance_summary.model_quality || !data.performance_summary.error_analysis) {
         return (
-            <Card>
-                <div className="text-red-600 text-center">
-                    <p>Invalid data structure received from API</p>
-                    <button
-                        onClick={fetchRegressionStats}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                        Retry
-                    </button>
-                </div>
-            </Card>
+            <div className="p-6 bg-gray-50 dark:bg-gray-800">
+                <Card>
+                    <div className="text-red-600 text-center">
+                        <AlertCircle className="w-6 h-6 mx-auto mb-2" />
+                        <p>Invalid data structure received from API</p>
+                        <button
+                            onClick={fetchRegressionStats}
+                            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                </Card>
+            </div>
         );
     }
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 space-y-6 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100">
             {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Regression Analysis</h1>
-                    <p className="text-gray-600 mt-2">
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Regression Analysis</h1>
+                    <p className="text-gray-600 dark:text-gray-400 mt-2">
                         Comprehensive regression model performance analysis and diagnostics
                     </p>
                 </div>
@@ -147,43 +320,75 @@ const RegressionStats: React.FC = () => {
 
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <MetricCard
-                    title="R² Score"
-                    value={data.metrics.r2_score}
-                    format="percentage"
-                />
-                <MetricCard
-                    title="RMSE"
-                    value={data.metrics.rmse}
-                    format="number"
-                />
-                <MetricCard
-                    title="MAE"
-                    value={data.metrics.mae}
-                    format="number"
-                />
-                <MetricCard
-                    title="MAPE"
-                    value={data.metrics.mape ? data.metrics.mape / 100 : undefined}
-                    format="percentage"
-                />
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <div className="flex items-center">
+                        <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-full">
+                            <Target className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div className="ml-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400">R² Score</p>
+                            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatPercentage(data.metrics.r2_score)}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <div className="flex items-center">
+                        <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full">
+                            <TrendingUp className="w-6 h-6 text-red-600" />
+                        </div>
+                        <div className="ml-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400">RMSE</p>
+                            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatNumber(data.metrics.rmse)}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <div className="flex items-center">
+                        <div className="p-3 bg-orange-100 dark:bg-orange-900/50 rounded-full">
+                            <Activity className="w-6 h-6 text-orange-600" />
+                        </div>
+                        <div className="ml-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400">MAE</p>
+                            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatNumber(data.metrics.mae)}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <div className="flex items-center">
+                        <div className="p-3 bg-purple-100 dark:bg-purple-900/50 rounded-full">
+                            <BarChart3 className="w-6 h-6 text-purple-600" />
+                        </div>
+                        <div className="ml-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400">MAPE</p>
+                            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {data.metrics.mape ? formatPercentage(data.metrics.mape / 100) : 'N/A'}
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>            {/* Performance Summary */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card>
-                    <h3 className="text-lg font-semibold mb-4">Model Quality</h3>
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Model Quality</h3>
                     <div className="space-y-3">
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Explained Variance:</span>
-                            <span className="font-medium">{formatPercentage(data.performance_summary.model_quality.explained_variance)}</span>
+                            <span className="text-gray-600 dark:text-gray-400">Explained Variance:</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatPercentage(data.performance_summary.model_quality.explained_variance)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Model Fit:</span>
+                            <span className="text-gray-600 dark:text-gray-400">Model Fit:</span>
                             <span className={`font-medium ${getFitColor(data.performance_summary.model_quality.model_fit || '')}`}>
                                 {data.performance_summary.model_quality.model_fit || 'N/A'}
                             </span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Overfitting Risk:</span>
+                            <span className="text-gray-600 dark:text-gray-400">Overfitting Risk:</span>
                             <span className={`font-medium ${data.performance_summary.model_quality.overfitting_risk === 'Low' ? 'text-green-600' :
                                 data.performance_summary.model_quality.overfitting_risk === 'Medium' ? 'text-yellow-600' : 'text-red-600'
                                 }`}>
@@ -191,156 +396,156 @@ const RegressionStats: React.FC = () => {
                             </span>
                         </div>
                     </div>
-                </Card>
+                </div>
 
-                <Card>
-                    <h3 className="text-lg font-semibold mb-4">Error Analysis</h3>
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Error Analysis</h3>
                     <div className="space-y-3">
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Average Error:</span>
-                            <span className="font-medium">{formatNumber(data.performance_summary.error_analysis.average_error)}</span>
+                            <span className="text-gray-600 dark:text-gray-400">Average Error:</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatNumber(data.performance_summary.error_analysis.average_error)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Prediction Spread:</span>
-                            <span className="font-medium">{formatNumber(data.performance_summary.error_analysis.prediction_spread)}</span>
+                            <span className="text-gray-600 dark:text-gray-400">Prediction Spread:</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatNumber(data.performance_summary.error_analysis.prediction_spread)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-600">Relative Error:</span>
-                            <span className="font-medium">{formatPercentage(data.performance_summary.error_analysis.relative_error_pct / 100)}</span>
+                            <span className="text-gray-600 dark:text-gray-400">Relative Error:</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatPercentage(data.performance_summary.error_analysis.relative_error_pct / 100)}</span>
                         </div>
                     </div>
-                </Card>
+                </div>
             </div>
 
             {/* Detailed Metrics */}
-            <Card>
-                <h3 className="text-lg font-semibold mb-4">Detailed Regression Metrics</h3>
+            <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Detailed Regression Metrics</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div className="text-2xl font-bold text-blue-600">{formatNumber(data.metrics.mse)}</div>
-                        <div className="text-sm text-gray-600">Mean Squared Error</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">Mean Squared Error</div>
                     </div>
-                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div className="text-2xl font-bold text-green-600">{formatPercentage(data.metrics.adjusted_r2)}</div>
-                        <div className="text-sm text-gray-600">Adjusted R²</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">Adjusted R²</div>
                     </div>
-                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div className="text-2xl font-bold text-purple-600">{formatPercentage(data.metrics.explained_variance)}</div>
-                        <div className="text-sm text-gray-600">Explained Variance</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">Explained Variance</div>
                     </div>
                 </div>
-            </Card>
+            </div>
 
             {/* Residual Statistics */}
             {data.residual_stats ? (
-                <Card>
-                    <h3 className="text-lg font-semibold mb-4">Residual Statistics</h3>
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Residual Statistics</h3>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatNumber(data.residual_stats.mean)}</div>
-                            <div className="text-sm text-gray-600">Mean</div>
+                            <div className="text-lg font-bold text-gray-900 dark:text-white">{formatNumber(data.residual_stats.mean)}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Mean</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatNumber(data.residual_stats.std)}</div>
-                            <div className="text-sm text-gray-600">Std Dev</div>
+                            <div className="text-lg font-bold text-gray-900 dark:text-white">{formatNumber(data.residual_stats.std)}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Std Dev</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatNumber(data.residual_stats.min)}</div>
-                            <div className="text-sm text-gray-600">Min</div>
+                            <div className="text-lg font-bold text-gray-900 dark:text-white">{formatNumber(data.residual_stats.min)}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Min</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatNumber(data.residual_stats.max)}</div>
-                            <div className="text-sm text-gray-600">Max</div>
+                            <div className="text-lg font-bold text-gray-900 dark:text-white">{formatNumber(data.residual_stats.max)}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Max</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-lg font-bold text-gray-900">{formatNumber(data.residual_stats.median)}</div>
-                            <div className="text-sm text-gray-600">Median</div>
-                        </div>
-                    </div>
-                </Card>
-            ) : null}      {/* Diagnostic Plots */}
-            <Card>
-                <h3 className="text-lg font-semibold mb-4">Diagnostic Plots</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div>
-                        <h4 className="text-md font-medium mb-2">Residuals vs Fitted Values</h4>
-                        {data.diagnostic_plots?.residual_plot ? (
-                            <img
-                                src={`data:image/png;base64,${data.diagnostic_plots.residual_plot}`}
-                                alt="Residual Plot"
-                                className="w-full rounded-lg border"
-                                onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling!.classList.remove('hidden');
-                                }}
-                            />
-                        ) : null}
-                        <div className="hidden p-8 bg-gray-100 rounded-lg text-center text-gray-500">
-                            Plot unavailable
-                        </div>
-                    </div>
-                    <div>
-                        <h4 className="text-md font-medium mb-2">Q-Q Plot (Normality Check)</h4>
-                        {data.diagnostic_plots?.qq_plot ? (
-                            <img
-                                src={`data:image/png;base64,${data.diagnostic_plots.qq_plot}`}
-                                alt="Q-Q Plot"
-                                className="w-full rounded-lg border"
-                                onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling!.classList.remove('hidden');
-                                }}
-                            />
-                        ) : null}
-                        <div className="hidden p-8 bg-gray-100 rounded-lg text-center text-gray-500">
-                            Plot unavailable
-                        </div>
-                    </div>
-                    <div>
-                        <h4 className="text-md font-medium mb-2">Predicted vs Actual Values</h4>
-                        {data.diagnostic_plots?.predicted_vs_actual ? (
-                            <img
-                                src={`data:image/png;base64,${data.diagnostic_plots.predicted_vs_actual}`}
-                                alt="Predicted vs Actual"
-                                className="w-full rounded-lg border"
-                                onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling!.classList.remove('hidden');
-                                }}
-                            />
-                        ) : null}
-                        <div className="hidden p-8 bg-gray-100 rounded-lg text-center text-gray-500">
-                            Plot unavailable
-                        </div>
-                    </div>
-                    <div>
-                        <h4 className="text-md font-medium mb-2">Residual Distribution</h4>
-                        {data.diagnostic_plots?.residual_distribution ? (
-                            <img
-                                src={`data:image/png;base64,${data.diagnostic_plots.residual_distribution}`}
-                                alt="Residual Distribution"
-                                className="w-full rounded-lg border"
-                                onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling!.classList.remove('hidden');
-                                }}
-                            />
-                        ) : null}
-                        <div className="hidden p-8 bg-gray-100 rounded-lg text-center text-gray-500">
-                            Plot unavailable
+                            <div className="text-lg font-bold text-gray-900 dark:text-white">{formatNumber(data.residual_stats.median)}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Median</div>
                         </div>
                     </div>
                 </div>
-            </Card>            {/* Data Source Info */}
-            <Card>
-                <div className="text-sm text-gray-600">
-                    <p>Analysis performed on <span className="font-medium">{data.data_source}</span> dataset</p>
+            ) : null}
+
+            {/* Diagnostic Plots */}
+            {plotlyData && (
+                <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold mb-6 text-gray-900 dark:text-white flex items-center">
+                        <BarChart3 className="w-5 h-5 mr-2 text-blue-600" />
+                        Diagnostic Plots
+                    </h3>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* Residuals vs Fitted Values */}
+                        <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <h4 className="text-md font-medium mb-3 text-gray-800 dark:text-gray-200 flex items-center">
+                                <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                                Residuals vs Fitted Values
+                            </h4>
+                            <div className="bg-white dark:bg-gray-800 p-2 rounded">
+                                <Plot
+                                    data={plotlyData.residualPlot.data}
+                                    layout={plotlyData.residualPlot.layout}
+                                    config={{ responsive: true, displayModeBar: false }}
+                                    style={{ width: '100%', height: '100%' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Q-Q Plot */}
+                        <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <h4 className="text-md font-medium mb-3 text-gray-800 dark:text-gray-200 flex items-center">
+                                <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                                Q-Q Plot (Normality Check)
+                            </h4>
+                            <div className="bg-white dark:bg-gray-800 p-2 rounded">
+                                <Plot
+                                    data={plotlyData.qqPlot.data}
+                                    layout={plotlyData.qqPlot.layout}
+                                    config={{ responsive: true, displayModeBar: false }}
+                                    style={{ width: '100%', height: '100%' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Predicted vs Actual Values */}
+                        <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <h4 className="text-md font-medium mb-3 text-gray-800 dark:text-gray-200 flex items-center">
+                                <div className="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                                Predicted vs Actual Values
+                            </h4>
+                            <div className="bg-white dark:bg-gray-800 p-2 rounded">
+                                <Plot
+                                    data={plotlyData.predictedVsActual.data}
+                                    layout={plotlyData.predictedVsActual.layout}
+                                    config={{ responsive: true, displayModeBar: false }}
+                                    style={{ width: '100%', height: '100%' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Residual Distribution */}
+                        <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                            <h4 className="text-md font-medium mb-3 text-gray-800 dark:text-gray-200 flex items-center">
+                                <div className="w-3 h-3 bg-orange-500 rounded-full mr-2"></div>
+                                Residual Distribution
+                            </h4>
+                            <div className="bg-white dark:bg-gray-800 p-2 rounded">
+                                <Plot
+                                    data={plotlyData.residualDistribution.data}
+                                    layout={plotlyData.residualDistribution.layout}
+                                    config={{ responsive: true, displayModeBar: false }}
+                                    style={{ width: '100%', height: '100%' }}
+                                />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </Card>
+            )}
+
+            {/* Data Source Info */}
+            <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <p>Analysis performed on <span className="font-medium text-gray-900 dark:text-white">{data.data_source}</span> dataset</p>
+                </div>
+            </div>
 
             {/* AI Explanation Panel */}
             <AIExplanationPanel

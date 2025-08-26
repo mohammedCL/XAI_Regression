@@ -2,6 +2,7 @@ from fastapi import FastAPI, Form, UploadFile, File, HTTPException, Depends, Bod
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import requests
 from typing import Dict
 from typing import List
 
@@ -46,44 +47,69 @@ def handle_request(service_func, *args, **kwargs):
 def read_root():
     return {"message": f"Welcome to the {settings.PROJECT_NAME}"}
 
-@app.post("/upload/model-and-data", tags=["Setup"])
-async def upload_model_and_data(
-    token: str = Depends(verify_token),
-    model_file: UploadFile = File(..., description="A scikit-learn model file (.joblib, .pkl, or .pickle)."),
-    data_file: UploadFile = File(..., description="A .csv dataset file."),
-    target_column: str = Form(..., description="The name of the target variable column in the CSV.")
-):
-    model_path = os.path.join(settings.STORAGE_DIR, model_file.filename or "model.joblib")
-    with open(model_path, "wb") as buffer:
-        buffer.write(await model_file.read())
+@app.get("/api/files")
+def get_s3_file_metadata():
+    """
+    Lists files and models from the external S3 API and returns their metadata (name, URL, folder).
+    Separates files and models based on the folder field.
+    """
+    file_api = "http://xailoadbalancer-579761463.ap-south-1.elb.amazonaws.com/api/files_download"
+    token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0YXFpdWRkaW4ubW9oYW1tZWRAY2lycnVzbGFicy5pbyIsInVzZXJfaWQiOjQyLCJyb2xlcyI6W10sInBlcm1pc3Npb25zIjpbXSwiZXhwIjoxNzU2NDY0MDE1fQ.gOHN21A5reYZX0QzcoJg3BFqU3BzeqEkJaYR4KOf9_0"
+    EXTERNAL_S3_API_URL = f"{file_api}/Regression"
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+    try:
+        response = requests.get(EXTERNAL_S3_API_URL, headers=headers)
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        json_data = response.json()
+        all_items = json_data.get("files", [])
+        
+        # Separate files and models based on folder
+        files = [item for item in all_items if item.get("folder") == "files"]
+        models = [item for item in all_items if item.get("folder") == "models"]
+        
+        return {
+            "success": True,
+            "files": files,
+            "models": models,
+            "total_files": len(files),
+            "total_models": len(models)
+        }
+    except requests.exceptions.RequestException as e:
+        print(f"Error connecting to external S3 API: {e}")
+        raise HTTPException(status_code=503, detail=f"Failed to connect to external S3 API: {str(e)}")
+    except Exception as e:
+        print(f"Error processing external S3 API response: {e}")
+        raise HTTPException(status_code=500, detail=f"Error processing S3 API response: {str(e)}")
 
-    data_path = os.path.join(settings.STORAGE_DIR, data_file.filename or "data.csv")
-    with open(data_path, "wb") as buffer:
-        buffer.write(await data_file.read())
+from typing import Dict
+from fastapi import APIRouter, Depends, Body, HTTPException
+from pydantic import BaseModel
 
-    return handle_request(model_service.load_model_and_data, model_path, data_path, target_column)
+class LoadDataRequest(BaseModel):
+    model: str
+    train_dataset: str = None
+    test_dataset: str = None
+    target_column: str = "target"
 
-@app.post("/upload/model-and-separate-datasets", tags=["Setup"])
-async def upload_model_and_separate_datasets(
-    token: str = Depends(verify_token),
-    model_file: UploadFile = File(..., description="A scikit-learn model file (.joblib, .pkl, or .pickle)."),
-    train_file: UploadFile = File(..., description="Training dataset CSV file."),
-    test_file: UploadFile = File(..., description="Test dataset CSV file."),
-    target_column: str = Form(..., description="The name of the target variable column in both CSV files.")
-):
-    model_path = os.path.join(settings.STORAGE_DIR, model_file.filename or "model.joblib")
-    with open(model_path, "wb") as buffer:
-        buffer.write(await model_file.read())
 
-    train_path = os.path.join(settings.STORAGE_DIR, f"train_{train_file.filename or 'train.csv'}")
-    with open(train_path, "wb") as buffer:
-        buffer.write(await train_file.read())
+@app.post("/load")
+async def load_data(payload: LoadDataRequest):
+    
+    try:
+        model_name = payload.model
+        train_dataset = payload.train_dataset
+        test_dataset = payload.test_dataset
+        target_column = payload.target_column
 
-    test_path = os.path.join(settings.STORAGE_DIR, f"test_{test_file.filename or 'test.csv'}")
-    with open(test_path, "wb") as buffer:
-        buffer.write(await test_file.read())
+        if not model_name:
+            raise HTTPException(status_code=400, detail="Missing model name")
 
-    return handle_request(model_service.load_model_and_separate_datasets, model_path, train_path, test_path, target_column)
+        return handle_request(model_service.load_model_and_datasets, model_path=model_name, train_data_path=train_dataset, test_data_path=test_dataset, target_column=target_column)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/analysis/overview", tags=["Analysis"])
 async def get_overview(token: str = Depends(verify_token)):

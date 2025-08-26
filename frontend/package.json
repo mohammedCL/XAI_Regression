@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/plotly.js": "^3.0.3",
     "axios": "^1.11.0",
     "framer-motion": "^12.23.12",
     "lucide-react": "^0.536.0",
     "plotly.js": "^2.35.2",
+    "plotly.js-dist-min": "^3.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-force-graph": "^1.48.0",
