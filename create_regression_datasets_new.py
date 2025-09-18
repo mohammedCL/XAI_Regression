@@ -228,6 +228,7 @@ def create_high_dimensional_dataset():
         n_samples=800,
         n_features=25,
         n_informative=8,
+        n_redundant=5,
         noise=15,
         random_state=456
     )
