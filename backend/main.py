@@ -74,7 +74,7 @@ def get_s3_file_metadata():
     Separates files and models based on the folder field.
     """
     file_api = "http://xailoadbalancer-579761463.ap-south-1.elb.amazonaws.com/api/files_download"
-    token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0YXFpdWRkaW4ubW9oYW1tZWRAY2lycnVzbGFicy5pbyIsInVzZXJfaWQiOjQyLCJyb2xlcyI6W10sInBlcm1pc3Npb25zIjpbXSwiZXhwIjoxNzU3OTM3MjY0fQ.RD8I0_5rMf_WKWAhJo_RvK2Z-h7XNz7yQpCYLcjMXjw"
+    token = ""
     EXTERNAL_S3_API_URL = f"{file_api}/Regression"
     headers = {
         "Authorization": f"Bearer {token}"
