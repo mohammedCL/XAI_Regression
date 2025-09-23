@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.auth import verify_token
 from app.services.model_service import ModelService
 from app.services.ai_explanation_service import AIExplanationService
-
+import math
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.PROJECT_VERSION)
 
 app.add_middleware(
@@ -30,10 +30,30 @@ ai_explanation_service = AIExplanationService()
 
 # --- Utility Function for Error Handling ---
 def handle_request(service_func, *args, **kwargs):
+    def sanitize(obj):
+        if isinstance(obj, dict):
+            return {k: sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [sanitize(v) for v in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        else:
+            return obj
+
     try:
         result = service_func(*args, **kwargs)
-        return JSONResponse(status_code=200, content=result)
+        # # Debug: print the result before returning as JSON
+        # import pprint
+        # print("[DEBUG] handle_request result:")
+        # pprint.pprint(result)
+        sanitized_result = sanitize(result)
+        return JSONResponse(status_code=200, content=sanitized_result)
     except ValueError as e:
+        import traceback
+        print("[DEBUG] ValueError in handle_request:")
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # For debugging, print the full error

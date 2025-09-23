@@ -176,9 +176,38 @@ class PredictionService:
             
             # Make prediction
             instance_df = pd.DataFrame([base_instance], columns=self.base.feature_names)
-            
+            # Align dtypes with training data to avoid numpy boolean subtract error
+            for col in instance_df.columns:
+                if col in self.base.X_df.columns:
+                    instance_df[col] = instance_df[col].astype(self.base.X_df[col].dtype)
+            # Now cast any remaining bool columns to int (paranoia)
+            for col in instance_df.select_dtypes(include=[bool]).columns:
+                instance_df[col] = instance_df[col].astype(int)
             # Regression model
-            prediction_value = float(self.base.safe_predict(instance_df)[0])
+            try:
+                prediction_value = float(self.base.safe_predict(instance_df)[0])
+            except Exception as pred_e:
+                print(f"[DEBUG] Prediction error: {pred_e}")
+                import traceback
+                traceback.print_exc()
+                raise
+
+            # SHAP explanation
+            shap_explanation = {}
+            if self.base.explainer:
+                try:
+                    shap_values = self.base.explainer.shap_values(instance_df)
+                    if isinstance(shap_values, list):
+                        shap_vals = shap_values[0] if len(shap_values) > 0 else []
+                    else:
+                        if len(shap_values.shape) == 2:
+                            shap_vals = shap_values[0]
+                        else:
+                            shap_vals = shap_values
+                    shap_explanation = dict(zip(self.base.feature_names, [float(v) for v in shap_vals]))
+                except Exception as e:
+                    pass
+            # ...existing code...
             
             # Get SHAP explanation if available
             shap_explanation = {}
@@ -217,8 +246,8 @@ class PredictionService:
         for feature_name in self.base.feature_names:
             col = self.base.X_df[feature_name]
             is_numeric = pd.api.types.is_numeric_dtype(col.dtype)
-            
-            if is_numeric:
+            is_bool = pd.api.types.is_bool_dtype(col.dtype)
+            if is_numeric and not is_bool:
                 feature_ranges[feature_name] = {
                     "type": "numeric",
                     "min": float(col.min()),
@@ -227,6 +256,16 @@ class PredictionService:
                     "std": float(col.std()),
                     "median": float(col.median()),
                     "step": self._calculate_step(col)
+                }
+            elif is_bool:
+                # For boolean, treat as categorical with fixed categories [0, 1]
+                value_counts = col.value_counts()
+                feature_ranges[feature_name] = {
+                    "type": "boolean",
+                    "categories": [0, 1],
+                    "frequencies": [int((col == 0).sum()), int((col == 1).sum())],
+                    "most_common": int(col.mode().iloc[0]) if not col.mode().empty else None,
+                    "step": 1
                 }
             else:
                 # For categorical features, provide the most common categories

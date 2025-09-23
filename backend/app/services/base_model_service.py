@@ -743,6 +743,13 @@ class BaseModelService:
         except:
             # Fallback calculation for MAPE if sklearn doesn't have it or fails
             mape = np.mean(np.abs((y_true - y_pred) / np.where(y_true != 0, y_true, 1))) * 100
+
+        # Symmetric Mean Absolute Percentage Error (SMAPE)
+        denominator = (np.abs(y_true) + np.abs(y_pred))
+        # Avoid division by zero
+        smape = np.mean(
+            np.where(denominator == 0, 0, 2.0 * np.abs(y_pred - y_true) / denominator)
+        ) * 100
         
         # Adjusted R² Score
         n_samples = len(y_true)
@@ -752,14 +759,24 @@ class BaseModelService:
         # Explained Variance
         explained_variance = 1 - np.var(y_true - y_pred) / np.var(y_true)
         
+        def safe_float(val):
+            try:
+                f = float(val)
+                if np.isnan(f) or np.isinf(f):
+                    return None
+                return f
+            except Exception:
+                return None
+
         return {
-            "r2_score": float(r2),
-            "rmse": float(rmse),
-            "mse": float(mse),
-            "mae": float(mae),
-            "mape": float(mape),
-            "adjusted_r2": float(adj_r2),
-            "explained_variance": float(explained_variance)
+            "r2_score": safe_float(r2),
+            "rmse": safe_float(rmse),
+            "mse": safe_float(mse),
+            "mae": safe_float(mae),
+            "mape": safe_float(mape),
+            "smape": safe_float(smape),
+            "adjusted_r2": safe_float(adj_r2),
+            "explained_variance": safe_float(explained_variance)
         }
 
     def _is_regression_model(self) -> bool:

@@ -110,18 +110,19 @@ class InteractionService:
             "classification": e["type"]
         } for e in edges[:10]]
 
-        # Provide heatmap matrix normalized 0..1 using the same normalization as edges
-        matrix = norm_mat.astype(float)
-
-        # Top features by importance
+        # Top features by importance (for heatmap and display)
         imp = np.asarray(node_importance, dtype=float)
         if np.max(imp) > 0:
             imp_norm = imp / np.max(imp)
         else:
             imp_norm = np.ones_like(imp)
-        
         order = np.argsort(imp)[::-1]
-        top_features = [{"name": self.base.feature_names[i], "importance": float(imp[i]), "normalized": float(imp_norm[i])} for i in order[:10]]
+        top_n = 15
+        top_feature_indices = order[:top_n]
+        top_feature_names = [self.base.feature_names[i] for i in top_feature_indices]
+        # Reduced matrix for top features only
+        matrix = norm_mat[np.ix_(top_feature_indices, top_feature_indices)].astype(float)
+        top_features = [{"name": self.base.feature_names[i], "importance": float(imp[i]), "normalized": float(imp_norm[i])} for i in top_feature_indices]
 
         independent_count = int(sum(1 for e in edges if e["type"] == "independent"))
 
@@ -134,11 +135,11 @@ class InteractionService:
         return {
             "nodes": nodes,
             "edges": edges,
-            # Frontend compatibility: provide both field names
+            # Only show heatmap for top N features
             "interaction_matrix": matrix.tolist(),
             "matrix": matrix.tolist(),  # Frontend expects this name
-            "feature_names": self.base.feature_names,
-            "matrix_features": self.base.feature_names,  # Frontend expects this name
+            "feature_names": top_feature_names,
+            "matrix_features": top_feature_names,  # Frontend expects this name
             "top_interactions": top_pairs,
             "top_features": top_features,
             "summary": {
