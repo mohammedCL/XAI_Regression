@@ -176,9 +176,38 @@ class PredictionService:
             
             # Make prediction
             instance_df = pd.DataFrame([base_instance], columns=self.base.feature_names)
-            
+            # Align dtypes with training data to avoid numpy boolean subtract error
+            for col in instance_df.columns:
+                if col in self.base.X_df.columns:
+                    instance_df[col] = instance_df[col].astype(self.base.X_df[col].dtype)
+            # Now cast any remaining bool columns to int (paranoia)
+            for col in instance_df.select_dtypes(include=[bool]).columns:
+                instance_df[col] = instance_df[col].astype(int)
             # Regression model
-            prediction_value = float(self.base.safe_predict(instance_df)[0])
+            try:
+                prediction_value = float(self.base.safe_predict(instance_df)[0])
+            except Exception as pred_e:
+                print(f"[DEBUG] Prediction error: {pred_e}")
+                import traceback
+                traceback.print_exc()
+                raise
+
+            # SHAP explanation
+            shap_explanation = {}
+            if self.base.explainer:
+                try:
+                    shap_values = self.base.explainer.shap_values(instance_df)
+                    if isinstance(shap_values, list):
+                        shap_vals = shap_values[0] if len(shap_values) > 0 else []
+                    else:
+                        if len(shap_values.shape) == 2:
+                            shap_vals = shap_values[0]
+                        else:
+                            shap_vals = shap_values
+                    shap_explanation = dict(zip(self.base.feature_names, [float(v) for v in shap_vals]))
+                except Exception as e:
+                    pass
+            # ...existing code...
             
             # Get SHAP explanation if available
             shap_explanation = {}
@@ -202,8 +231,67 @@ class PredictionService:
                 "prediction_value": prediction_value,
                 "feature_values": base_instance.to_dict(),
                 "shap_explanations": shap_explanation,
-                "model_type": "regression"
+                "model_type": "regression",
+                "feature_ranges": self._get_feature_ranges()
             }
             
         except Exception as e:
             raise ValueError(f"What-if analysis failed: {str(e)}")
+
+    def _get_feature_ranges(self) -> Dict[str, Any]:
+        """Get feature ranges and metadata for what-if analysis."""
+        self.base._is_ready()
+        
+        feature_ranges = {}
+        for feature_name in self.base.feature_names:
+            col = self.base.X_df[feature_name]
+            is_numeric = pd.api.types.is_numeric_dtype(col.dtype)
+            is_bool = pd.api.types.is_bool_dtype(col.dtype)
+            if is_numeric and not is_bool:
+                feature_ranges[feature_name] = {
+                    "type": "numeric",
+                    "min": float(col.min()),
+                    "max": float(col.max()),
+                    "mean": float(col.mean()),
+                    "std": float(col.std()),
+                    "median": float(col.median()),
+                    "step": self._calculate_step(col)
+                }
+            elif is_bool:
+                # For boolean, treat as categorical with fixed categories [0, 1]
+                value_counts = col.value_counts()
+                feature_ranges[feature_name] = {
+                    "type": "boolean",
+                    "categories": [0, 1],
+                    "frequencies": [int((col == 0).sum()), int((col == 1).sum())],
+                    "most_common": int(col.mode().iloc[0]) if not col.mode().empty else None,
+                    "step": 1
+                }
+            else:
+                # For categorical features, provide the most common categories
+                value_counts = col.value_counts()
+                feature_ranges[feature_name] = {
+                    "type": "categorical",
+                    "categories": value_counts.index.tolist(),
+                    "frequencies": value_counts.values.tolist(),
+                    "most_common": value_counts.index[0] if len(value_counts) > 0 else None
+                }
+        
+        return feature_ranges
+
+    def _calculate_step(self, column: pd.Series) -> float:
+        """Calculate appropriate step size for numeric column."""
+        col_range = column.max() - column.min()
+        
+        # For very small ranges (< 1), use smaller steps
+        if col_range < 1:
+            return 0.01
+        # For medium ranges (1-100), use 0.1 or 1
+        elif col_range < 100:
+            return 0.1 if col_range < 10 else 1
+        # For large ranges, use larger steps
+        elif col_range < 1000:
+            return 10
+        else:
+            return 100
+

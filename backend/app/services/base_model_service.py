@@ -331,9 +331,9 @@ class BaseModelService:
                 X = df.drop(columns=[target_column])
                 y = df[target_column]
                 
-                # Split into train/test
+                # Split into train/test (no stratification for regression)
                 X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=test_size, random_state=random_state, stratify=y
+                    X, y, test_size=test_size, random_state=random_state
                 )
                 
                 message = f"Model and dataset loaded successfully (split into train/test)"
@@ -535,19 +535,38 @@ class BaseModelService:
                 'health_score_pct': 100.0 - self.model_info.get('missing_pct', 0) - self.model_info.get('duplicates_pct', 0)
             })
             
-            # Initialize SHAP explainer for tree-based models
+            # Initialize SHAP explainer based on model type
             try:
-                if model_wrapper.model_type == "sklearn" and hasattr(model_wrapper.model, 'tree_') or hasattr(model_wrapper.model, 'estimators_'):
-                    self.explainer = shap.TreeExplainer(model_wrapper.model)
+                if model_wrapper.model_type == "sklearn":
+                    # Check for tree-based models first
+                    if hasattr(model_wrapper.model, 'tree_') or hasattr(model_wrapper.model, 'estimators_'):
+                        print("Initializing TreeExplainer for tree-based model...")
+                        self.explainer = shap.TreeExplainer(model_wrapper.model)
+                    # Check for linear models
+                    elif hasattr(model_wrapper.model, 'coef_'):
+                        print("Initializing LinearExplainer for linear model...")
+                        self.explainer = shap.LinearExplainer(model_wrapper.model, X_train)
+                    # Fallback to general explainer for other model types
+                    else:
+                        print("Initializing general Explainer for other model types...")
+                        # Use a sample of background data for efficiency
+                        background_size = min(100, len(X_train))
+                        background_data = X_train.sample(n=background_size, random_state=42)
+                        self.explainer = shap.Explainer(model_wrapper.predict, background_data)
+                    
                     # Compute SHAP values on a sample for efficiency
                     sample_size = min(1000, len(X_train))
                     sample_X = X_train.sample(n=sample_size, random_state=42)
                     self.shap_values = self.explainer.shap_values(sample_X)
-                    print(f"SHAP explainer initialized with {sample_size} samples.")
+                    print(f"SHAP explainer initialized successfully with {sample_size} samples.")
                 else:
-                    print("SHAP explainer not initialized (model type not supported or not tree-based)")
+                    print(f"SHAP explainer not supported for model type: {model_wrapper.model_type}")
+                    self.explainer = None
+                    self.shap_values = None
             except Exception as e:
                 print(f"Failed to initialize SHAP explainer: {e}")
+                import traceback
+                traceback.print_exc()
                 self.explainer = None
                 self.shap_values = None
             
@@ -724,6 +743,13 @@ class BaseModelService:
         except:
             # Fallback calculation for MAPE if sklearn doesn't have it or fails
             mape = np.mean(np.abs((y_true - y_pred) / np.where(y_true != 0, y_true, 1))) * 100
+
+        # Symmetric Mean Absolute Percentage Error (SMAPE)
+        denominator = (np.abs(y_true) + np.abs(y_pred))
+        # Avoid division by zero
+        smape = np.mean(
+            np.where(denominator == 0, 0, 2.0 * np.abs(y_pred - y_true) / denominator)
+        ) * 100
         
         # Adjusted R² Score
         n_samples = len(y_true)
@@ -733,14 +759,24 @@ class BaseModelService:
         # Explained Variance
         explained_variance = 1 - np.var(y_true - y_pred) / np.var(y_true)
         
+        def safe_float(val):
+            try:
+                f = float(val)
+                if np.isnan(f) or np.isinf(f):
+                    return None
+                return f
+            except Exception:
+                return None
+
         return {
-            "r2_score": float(r2),
-            "rmse": float(rmse),
-            "mse": float(mse),
-            "mae": float(mae),
-            "mape": float(mape),
-            "adjusted_r2": float(adj_r2),
-            "explained_variance": float(explained_variance)
+            "r2_score": safe_float(r2),
+            "rmse": safe_float(rmse),
+            "mse": safe_float(mse),
+            "mae": safe_float(mae),
+            "mape": safe_float(mape),
+            "smape": safe_float(smape),
+            "adjusted_r2": safe_float(adj_r2),
+            "explained_variance": safe_float(explained_variance)
         }
 
     def _is_regression_model(self) -> bool:
@@ -798,25 +834,20 @@ class BaseModelService:
         print("Creating SHAP explainer...")
         try:
             if model_wrapper.model_type == "sklearn":
-                try:
+                # Check for tree-based models first
+                if hasattr(model_wrapper.model, 'tree_') or hasattr(model_wrapper.model, 'estimators_'):
+                    print("Trying TreeExplainer for tree-based model...")
                     self.explainer = shap.TreeExplainer(model_wrapper.model)
-                except Exception as e:
-                    print(f"Warning: Could not create SHAP TreeExplainer: {e}")
-                    try:
-                        # Fallback to general explainer
-                        sample_size = min(100, len(self.X_train))
-                        background_data = self.X_train.values[:sample_size]
-                        self.explainer = shap.Explainer(model_wrapper.predict, background_data)
-                    except Exception as e2:
-                        print(f"Warning: Could not create SHAP Explainer: {e2}")
-                        try:
-                            # Try KernelExplainer as final fallback
-                            sample_size = min(50, len(self.X_train))
-                            background_data = self.X_train.values[:sample_size]
-                            self.explainer = shap.KernelExplainer(model_wrapper.predict, background_data)
-                        except Exception as e3:
-                            print(f"Warning: Could not create SHAP KernelExplainer: {e3}")
-                            self.explainer = None
+                # Check for linear models
+                elif hasattr(model_wrapper.model, 'coef_'):
+                    print("Trying LinearExplainer for linear model...")
+                    self.explainer = shap.LinearExplainer(model_wrapper.model, self.X_train)
+                else:
+                    print("Trying general explainer fallback...")
+                    # Fallback to general explainer
+                    sample_size = min(100, len(self.X_train))
+                    background_data = self.X_train.values[:sample_size]
+                    self.explainer = shap.Explainer(model_wrapper.predict, background_data)
             else:
                 # For non-sklearn models, use a different SHAP explainer
                 try:

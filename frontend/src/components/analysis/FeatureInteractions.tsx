@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Network, Search, Filter, Settings, BarChart3, Loader2 } from 'lucide-react';
 import { getModelOverview, postInteractionNetwork, postPairwiseAnalysis } from '../../services/api';
 import Plot from 'react-plotly.js';
@@ -148,6 +148,31 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
         })();
     }, [pair?.f1, pair?.f2]);
 
+    // Filtered network edges and matrix for minStrength
+    const filteredEdges = (network?.edges || []).filter((e: any) => e.strength >= minStrength);
+    // For the heatmap, mask values below minStrength
+    const filteredMatrix = useMemo(() => {
+        if (!network?.matrix || !Array.isArray(network.matrix)) return network?.matrix;
+        return network.matrix.map((row: number[]) =>
+            row.map((v: number) => (v >= minStrength ? v : null))
+        );
+    }, [network, minStrength]);
+
+    // For pairwise analysis, filter points by minStrength using prediction as proxy for strength
+    const filteredPairData = useMemo(() => {
+        if (!pairData || !Array.isArray(pairData.prediction)) return pairData;
+        // If prediction is not a number array, skip filtering
+        if (!pairData.prediction.every((v: any) => typeof v === 'number')) return pairData;
+        // Use absolute value of prediction as a proxy for strength (customize as needed)
+        const mask = pairData.prediction.map((v: number) => Math.abs(v) >= minStrength);
+        return {
+            ...pairData,
+            x: pairData.x.filter((_: any, i: number) => mask[i]),
+            y: pairData.y.filter((_: any, i: number) => mask[i]),
+            prediction: pairData.prediction.filter((_: any, i: number) => mask[i]),
+        };
+    }, [pairData, minStrength]);
+
     return (
         <div className="p-6 space-y-6 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100">
             <div className="flex items-center justify-between">
@@ -215,7 +240,7 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                             <div className="overflow-auto">
                                 <Plot
                                     data={[{
-                                        z: (network.matrix || network.interaction_matrix) as number[][],
+                                        z: filteredMatrix as number[][],
                                         x: network.matrix_features || network.feature_names,
                                         y: network.matrix_features || network.feature_names,
                                         type: 'heatmap',
@@ -242,7 +267,7 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                                 <ForceGraph2D
                                     graphData={{
                                         nodes: (network.nodes || []).map((n: any) => ({ id: n.id, name: n.name, val: 1 + (n.importance || 0) })),
-                                        links: (network.edges || []).filter((e: any) => e.strength >= minStrength).map((e: any) => ({ source: e.source, target: e.target, value: e.strength }))
+                                        links: filteredEdges.map((e: any) => ({ source: e.source, target: e.target, value: e.strength }))
                                     }}
                                     nodeAutoColorBy="id"
                                     nodeRelSize={6}
@@ -253,15 +278,15 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                                 />
                             </div>
                         )}
-                        {!loading && active === 'pairwise' && pairData && (
+                        {!loading && active === 'pairwise' && filteredPairData && (
                             <div className="h-[420px]">
                                 <Plot
                                     data={[{
-                                        x: pairData.x,
-                                        y: pairData.y,
+                                        x: filteredPairData.x,
+                                        y: filteredPairData.y,
                                         mode: 'markers',
                                         type: 'scatter',
-                                        marker: { size: 6, color: pairData.prediction, colorscale: 'Blues', colorbar: { title: { text: 'Pred' } } },
+                                        marker: { size: 6, color: filteredPairData.prediction, colorscale: 'Blues', colorbar: { title: { text: 'Pred' } } },
                                         hovertemplate: `${pair?.f1}: %{x}<br>${pair?.f2}: %{y}<br>p: %{marker.color:.3f}<extra></extra>`
                                     }]}
                                     layout={{ autosize: true, margin: { l: 40, r: 20, t: 10, b: 40 }, xaxis: { title: { text: pair?.f1 || '' } }, yaxis: { title: { text: pair?.f2 || '' } } }}

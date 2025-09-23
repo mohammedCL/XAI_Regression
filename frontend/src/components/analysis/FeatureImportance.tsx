@@ -38,7 +38,7 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
     const [viz, setViz] = useState<'bar' | 'radar' | 'table'>('bar');
     const [method, setMethod] = useState<'shap' | 'permutation' | 'gain'>('shap');
     const [sortBy, setSortBy] = useState<'importance' | 'feature_name' | 'impact'>('importance');
-    const [topN, setTopN] = useState(10);
+    const [topN, setTopN] = useState(15);
     const [impLoading, setImpLoading] = useState(false);
     const [importance, setImportance] = useState<any>(null);
 
@@ -52,9 +52,20 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                 const meta = await getFeaturesMetadata();
                 const list: FeatureMeta[] = meta.features || [];
                 setFeaturesMeta(list);
+                // By default, select only the top 15 features by importance (if available), else first 15
                 const v: Record<string, boolean> = {};
-                list.forEach(f => (v[f.name] = true));
-                setVisible(v);
+                // Try to get importance from backend if possible
+                try {
+                    (async () => {
+                        const imp = await postAdvancedImportance({ method: 'shap', sort_by: 'importance', top_n: 15, visualization: 'bar' });
+                        const topFeatures = (imp.features || []).slice(0, 15).map((f: any) => f.name);
+                        list.forEach(f => (v[f.name] = topFeatures.includes(f.name)));
+                        setVisible(v);
+                    })();
+                } catch {
+                    list.forEach((f, i) => (v[f.name] = i < 15));
+                    setVisible(v);
+                }
             } catch (e: any) {
                 setError(e.response?.data?.detail || 'Failed to load features metadata');
             }
@@ -191,11 +202,17 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                                     {corr.features.map((rowName, r) => (
                                         <React.Fragment key={rowName}>
                                             <div className="text-xs text-gray-600 h-8 flex items-center">{rowName}</div>
-                                            {corr.matrix[r].map((v, c) => (
-                                                <div key={c} className="h-8 w-16 flex items-center justify-center text-[10px] font-semibold text-white transition-colors" style={{ backgroundColor: heatColor(v) }} title={`${rowName} ↔ ${corr.features[c]}: ${v.toFixed(2)}`}>
-                                                    {v.toFixed(2)}
-                                                </div>
-                                            ))}
+                                            {corr.matrix[r].map((v, c) => {
+                                                const isNull = v === null || v === undefined;
+                                                const display = isNull ? 'N/A' : v.toFixed(2);
+                                                const bg = isNull ? 'rgba(156,163,175,0.5)' : heatColor(v); // gray for null
+                                                const title = isNull ? `${rowName} ↔ ${corr.features[c]}: N/A` : `${rowName} ↔ ${corr.features[c]}: ${v.toFixed(2)}`;
+                                                return (
+                                                    <div key={c} className="h-8 w-16 flex items-center justify-center text-[10px] font-semibold text-white transition-colors" style={{ backgroundColor: bg }} title={title}>
+                                                        {display}
+                                                    </div>
+                                                );
+                                            })}
                                         </React.Fragment>
                                     ))}
                                 </div>
