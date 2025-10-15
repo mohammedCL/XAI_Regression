@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Sliders, Zap, BarChart3, RefreshCw, Loader2, Target, RotateCcw } from 'lucide-react';
-import { performWhatIf, getFeaturesMetadata, explainWithAI } from '../../services/api';
+import { postFeaturesMetadata, explainWithAI } from '../../services/api.stateless';
+import { postWhatIf } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 
 const FeatureSlider = ({ name, value, min, max, step, median, mean, onChange }: {
@@ -75,23 +77,23 @@ const FeatureInput = ({ name, value, type, onChange }: {
 const PredictionDisplay = ({ prediction, modelType }: { prediction: number; modelType?: string }) => {
     console.log('PredictionDisplay rendering with prediction:', prediction);
     return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <Target className="mr-2 text-blue-600" />
-            Current Prediction
-        </h3>
-        <div className="text-center">
-            <div className="text-4xl font-bold text-blue-600 mb-2">
-                {typeof prediction === 'number' ? prediction.toFixed(2) : 'N/A'}
-            </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Predicted Value
-            </div>
-            <div className="text-xs text-gray-500">
-                Model Type: {modelType || 'Regression'}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center">
+                <Target className="mr-2 text-blue-600" />
+                Current Prediction
+            </h3>
+            <div className="text-center">
+                <div className="text-4xl font-bold text-blue-600 mb-2">
+                    {typeof prediction === 'number' ? prediction.toFixed(2) : 'N/A'}
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Predicted Value
+                </div>
+                <div className="text-xs text-gray-500">
+                    Model Type: {modelType || 'Regression'}
+                </div>
             </div>
         </div>
-    </div>
     );
 };
 
@@ -135,12 +137,20 @@ const WhatIfAnalysis: React.FC<{ modelType?: string }> = ({ modelType = 'regress
     const [aiExplanation, setAiExplanation] = useState<any>(null);
     const [aiLoading, setAiLoading] = useState(false);
 
-    // Load model overview and feature names on component mount
+    // Get S3 configuration for stateless API calls
+    const { config } = useS3Config();
+
+    // Load model overview and feature names on component mount (stateless POST)
     useEffect(() => {
         const loadModelInfo = async () => {
             try {
                 console.log('Loading features metadata...');
-                const featuresData = await getFeaturesMetadata();
+                const featuresData = await postFeaturesMetadata({
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn
+                });
                 console.log('Features metadata received:', featuresData);
                 const features = featuresData.features || [];
                 
@@ -212,7 +222,17 @@ const WhatIfAnalysis: React.FC<{ modelType?: string }> = ({ modelType = 'regress
         
         try {
             console.log('Performing prediction with features:', currentFeatures);
-            const result = await performWhatIf(currentFeatures);
+            
+            // Construct stateless payload for backend
+            const payload = {
+                model: config.modelUrl,
+                train_dataset: config.trainDatasetUrl,
+                test_dataset: config.testDatasetUrl,
+                target_column: config.targetColumn,
+                features: currentFeatures
+            };
+            
+            const result = await postWhatIf(payload);
             console.log('Prediction result:', result);
             console.log('Prediction value:', result.prediction_value);
             setPrediction(result.prediction_value || 0);
@@ -324,7 +344,10 @@ const WhatIfAnalysis: React.FC<{ modelType?: string }> = ({ modelType = 'regress
                 }
             };
 
-            const explanation = await explainWithAI('what_if', analysisData);
+            const explanation = await explainWithAI({
+                type: 'what_if',
+                ...analysisData
+            });
             setAiExplanation(explanation);
         } catch (err: any) {
             console.error('Failed to get AI explanation:', err);

@@ -4,7 +4,8 @@ import { Target, TrendingUp, Activity, AlertCircle, Loader2, BarChart3 } from 'l
 import Card from '../common/Card';
 import AIExplanationPanel from '../common/AIExplanationPanel';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
-import { getRegressionStats } from '../../services/api';
+import { postRegressionStats } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 
 interface RegressionMetrics {
     r2_score: number;
@@ -90,15 +91,22 @@ const RegressionStats: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showAIExplanation, setShowAIExplanation] = useState(false);
+    const { config } = useS3Config();
 
     useEffect(() => {
         fetchRegressionStats();
-    }, []);
+    }, [config]);
 
     const fetchRegressionStats = async () => {
         try {
             setLoading(true);
-            const response = await getRegressionStats();
+            const payload = {
+                model: config.modelUrl,
+                train_dataset: config.trainDatasetUrl,
+                test_dataset: config.testDatasetUrl,
+                target_column: config.targetColumn,
+            };
+            const response = await postRegressionStats(payload);
             setData(response);
             setError(null);
         } catch (err) {

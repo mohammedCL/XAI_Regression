@@ -12,7 +12,8 @@ import {
     PolarAngleAxis,
     PolarRadiusAxis,
 } from 'recharts';
-import { getFeaturesMetadata, postCorrelation, postAdvancedImportance } from '../../services/api';
+import { postFeaturesMetadata, postCorrelation, postAdvancedImportance } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import { AlertCircle, Loader2, BarChart3, Eye, EyeOff, Info } from 'lucide-react';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import AIExplanationPanel from '../common/AIExplanationPanel';
@@ -28,6 +29,7 @@ const heatColor = (v: number) => {
 
 const FeatureImportance: React.FC<{ modelType?: string }> = () => {
     // metadata and correlation
+    const { config } = useS3Config();
     const [featuresMeta, setFeaturesMeta] = useState<FeatureMeta[]>([]);
     const [visible, setVisible] = useState<Record<string, boolean>>({});
     const [corr, setCorr] = useState<{ features: string[]; matrix: number[][] } | null>(null);
@@ -45,11 +47,21 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
     // AI explanation state
     const [showAIExplanation, setShowAIExplanation] = useState(false);
 
-    // fetch feature metadata
+    // fetch feature metadata (stateless POST)
     useEffect(() => {
+        // Check for missing S3 config
+        if (!config.modelUrl || !config.trainDatasetUrl || !config.testDatasetUrl || !config.targetColumn) {
+            setError('Missing S3 URLs for model or datasets. Please set all fields in the upload page.');
+            return;
+        }
         (async () => {
             try {
-                const meta = await getFeaturesMetadata();
+                const meta = await postFeaturesMetadata({
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn
+                });
                 const list: FeatureMeta[] = meta.features || [];
                 setFeaturesMeta(list);
                 // By default, select only the top 15 features by importance (if available), else first 15
@@ -57,7 +69,16 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                 // Try to get importance from backend if possible
                 try {
                     (async () => {
-                        const imp = await postAdvancedImportance({ method: 'shap', sort_by: 'importance', top_n: 15, visualization: 'bar' });
+                        const imp = await postAdvancedImportance({
+                            model: config.modelUrl,
+                            train_dataset: config.trainDatasetUrl,
+                            test_dataset: config.testDatasetUrl,
+                            target_column: config.targetColumn,
+                            method: 'shap',
+                            sort_by: 'importance',
+                            top_n: 15,
+                            visualization: 'bar'
+                        });
                         const topFeatures = (imp.features || []).slice(0, 15).map((f: any) => f.name);
                         list.forEach(f => (v[f.name] = topFeatures.includes(f.name)));
                         setVisible(v);
@@ -70,7 +91,7 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                 setError(e.response?.data?.detail || 'Failed to load features metadata');
             }
         })();
-    }, []);
+    }, [config]);
 
     // compute correlation whenever visible set changes
     const activeFeatures = useMemo(() => Object.keys(visible).filter(k => visible[k]), [visible]);
@@ -84,7 +105,13 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
             try {
                 setCorrLoading(true);
                 setError('');
-                const res = await postCorrelation(activeFeatures);
+                const res = await postCorrelation({
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    features: activeFeatures
+                });
                 setCorr({ features: res.features, matrix: res.matrix });
             } catch (e: any) {
                 setError(e.response?.data?.detail || 'Failed to compute correlation');
@@ -92,7 +119,7 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                 setCorrLoading(false);
             }
         })();
-    }, [activeFeatures.join('|')]);
+    }, [activeFeatures.join('|'), config]);
 
     // fetch advanced importance whenever controls change
     useEffect(() => {
@@ -100,9 +127,18 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
             try {
                 setImpLoading(true);
                 setError(''); // Clear previous errors
-                const data = await postAdvancedImportance({ method, sort_by: sortBy, top_n: topN, visualization: viz });
+                const data = await postAdvancedImportance({
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    method,
+                    sort_by: sortBy,
+                    top_n: topN,
+                    visualization: viz,
+                    features: activeFeatures
+                });
                 setImportance(data);
-                
                 // Check if the response contains an error (for SHAP unavailability)
                 if (data.error) {
                     setError(data.error);
@@ -114,7 +150,6 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
             } catch (e: any) {
                 const errorMsg = e.response?.data?.detail || 'Failed to fetch feature importance';
                 setError(errorMsg);
-                
                 // Auto-fallback for SHAP unavailability
                 if (method === 'shap' && errorMsg.includes('SHAP')) {
                     setError(errorMsg + ' Automatically switching to builtin method.');
@@ -124,7 +159,7 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
                 setImpLoading(false);
             }
         })();
-    }, [method, sortBy, topN, viz]);
+    }, [method, sortBy, topN, viz, config, activeFeatures]);
 
     const toggleFeature = (name: string) => {
         const next = { ...visible };
@@ -145,6 +180,11 @@ const FeatureImportance: React.FC<{ modelType?: string }> = () => {
 
     return (
         <div className="p-6 space-y-6 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 w-full">
+            {/* Debug: Show current S3 config values */}
+            <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-gray-700 dark:text-gray-200">
+                <strong>Debug S3 Config:</strong>
+                <pre>{JSON.stringify(config, null, 2)}</pre>
+            </div>
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold flex items-center">
                     <BarChart3 className="mr-3 text-blue-600" />

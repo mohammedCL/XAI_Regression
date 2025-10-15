@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { explainInstance, listInstances, postIndividualPrediction } from '../../services/api';
 import { AlertCircle, Loader2, User, Target, TrendingUp, TrendingDown, Info, Filter } from 'lucide-react';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import AIExplanationPanel from '../common/AIExplanationPanel';
-
+import { useS3Config } from '../../context/S3ConfigContext';
+import { postIndividualPrediction, postExplainInstance, postListInstances } from '../../services/api.stateless';
+   
 const FeatureContribution = ({ name, value, contribution, maxContribution }: {
     name: string;
     value: any;
@@ -95,16 +96,25 @@ const IndividualPredictions: React.FC<{ modelType?: string }> = () => {
     const [sortBy, setSortBy] = useState<'prediction' | 'confidence'>('prediction');
     // AI explanation state
     const [showAIExplanation, setShowAIExplanation] = useState(false);
+    // S3 config context
+    const { config } = useS3Config();
 
     const fetchExplanation = async (idx?: number) => {
         try {
             setLoading(true);
             setError('');
             const targetIdx = typeof idx === 'number' ? idx : (instanceIdx ?? 0);
-            // Use new Section 3 endpoint for summary, but also keep explain_instance for contributions
+            // Use stateless API: send S3 URLs, target_column, instance_idx
+            const payload = {
+                model: config.modelUrl,
+                train_dataset: config.trainDatasetUrl,
+                test_dataset: config.testDatasetUrl,
+                target_column: config.targetColumn,
+                instance_idx: targetIdx,
+            };
             const [summary, legacy] = await Promise.all([
-                postIndividualPrediction(targetIdx),
-                explainInstance(targetIdx)
+                postIndividualPrediction(payload),
+                postExplainInstance(payload)
             ]);
             const merged = {
                 ...legacy,
@@ -124,14 +134,23 @@ const IndividualPredictions: React.FC<{ modelType?: string }> = () => {
     useEffect(() => {
         (async () => {
             try {
-                const data = await listInstances(sortBy, 100);
+                // Use stateless API: send S3 URLs, target_column, sort_by, limit
+                const payload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    sort_by: sortBy,
+                    limit: 100,
+                };
+                const data = await postListInstances(payload);
                 setInstances(data.instances || []);
                 if ((data.instances || []).length > 0 && instanceIdx === null) {
                     fetchExplanation(data.instances[0].id);
                 }
             } catch (e) { /* ignore */ }
         })();
-    }, [sortBy]);
+    }, [sortBy, config]);
 
     const ordered = useMemo(() => explanation?.ordered_contributions, [explanation]);
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getModelOverview } from '../../services/api';
+import { postModelOverview } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import { Target, AlertCircle, Info, Loader2 } from 'lucide-react';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import AIExplanationPanel from '../common/AIExplanationPanel';
@@ -27,11 +28,19 @@ const ModelOverview: React.FC<{ modelType: string }> = () => {
     const [error, setError] = useState('');
     const [showAIExplanation, setShowAIExplanation] = useState(false);
 
+    const { config } = useS3Config();
     useEffect(() => {
         const fetchOverview = async () => {
             try {
                 setLoading(true);
-                const data = await getModelOverview();
+                // Send S3 URLs and target column in payload
+                const payload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                };
+                const data = await postModelOverview(payload);
                 setOverview(data);
             } catch (err: any) {
                 setError(err.response?.data?.detail || 'Failed to fetch model overview.');
@@ -40,7 +49,7 @@ const ModelOverview: React.FC<{ modelType: string }> = () => {
             }
         };
         fetchOverview();
-    }, []);
+    }, [config]);
 
     if (loading) {
         return <div className="p-6 flex justify-center items-center h-full"><Loader2 className="w-8 h-8 animate-spin" /></div>;

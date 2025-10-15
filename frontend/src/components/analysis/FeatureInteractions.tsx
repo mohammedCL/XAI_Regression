@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Network, Search, Filter, Settings, BarChart3, Loader2 } from 'lucide-react';
-import { getModelOverview, postInteractionNetwork, postPairwiseAnalysis } from '../../services/api';
+import { postModelOverview, postInteractionNetwork, postPairwiseAnalysis } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import Plot from 'react-plotly.js';
 // @ts-ignore - types are provided by package at runtime
 import ForceGraph2D from 'react-force-graph-2d';
@@ -102,21 +103,40 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
     const [minStrength, setMinStrength] = useState(0.1);
     const [network, setNetwork] = useState<any>(null);
     const [loading, setLoading] = useState(false);
-    // keep state for future error UI but unused now
-    // error state removed to avoid unused warning
     const [pair, setPair] = useState<{ f1: string; f2: string } | null>(null);
     const [pairData, setPairData] = useState<any>(null);
     const [active, setActive] = useState<'heatmap' | 'network' | 'pairwise'>('heatmap');
     const [searchText, setSearchText] = useState('');
     const [showAIExplanation, setShowAIExplanation] = useState(false);
+    const { config } = useS3Config();
 
+    // API Flow: 1. Model Overview, 2. Interaction Network, 3. Pairwise Analysis
     useEffect(() => {
         (async () => {
             try {
-                await getModelOverview();
                 setLoading(true);
-                const net = await postInteractionNetwork(30, 200);
+                // 1. Model Overview Check
+                const overviewPayload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn
+                };
+                await postModelOverview(overviewPayload);
+
+                // 2. Interaction Network Generation
+                const networkPayload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    max_nodes: 30,
+                    max_edges: 200
+                };
+                const net = await postInteractionNetwork(networkPayload);
                 setNetwork(net);
+
+                // Auto-select default feature pair
                 if (net?.top_interactions?.length) {
                     const [a, b] = net.top_interactions[0].feature_pair;
                     setPair({ f1: a, f2: b });
@@ -131,14 +151,23 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                 setLoading(false);
             }
         })();
-    }, []);
+    }, [config]);
 
     useEffect(() => {
         (async () => {
             if (!pair) return;
             try {
                 setLoading(true);
-                const data = await postPairwiseAnalysis(pair.f1, pair.f2);
+                // 3. Pairwise Analysis
+                const pairwisePayload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    feature1: pair.f1,
+                    feature2: pair.f2
+                };
+                const data = await postPairwiseAnalysis(pairwisePayload);
                 setPairData(data);
             } catch (e: any) {
                 console.warn(e);
@@ -146,7 +175,7 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                 setLoading(false);
             }
         })();
-    }, [pair?.f1, pair?.f2]);
+    }, [pair?.f1, pair?.f2, config]);
 
     // Filtered network edges and matrix for minStrength
     const filteredEdges = (network?.edges || []).filter((e: any) => e.strength >= minStrength);
@@ -266,15 +295,50 @@ const FeatureInteractions: React.FC<{ modelType?: string }> = () => {
                             <div className="h-[420px]">
                                 <ForceGraph2D
                                     graphData={{
-                                        nodes: (network.nodes || []).map((n: any) => ({ id: n.id, name: n.name, val: 1 + (n.importance || 0) })),
-                                        links: filteredEdges.map((e: any) => ({ source: e.source, target: e.target, value: e.strength }))
+                                        nodes: (network.nodes || []).map((n: any) => {
+                                            // Robust fallback for node name
+                                            const name = n.name || n.id || n.feature || 'Unknown';
+                                            // Clamp node size for visual clarity
+                                            const importance = typeof n.importance === 'number' ? n.importance : 0;
+                                            const val = Math.max(8, Math.min(32, 12 + Math.round(importance * 20)));
+                                            return {
+                                                id: n.id,
+                                                name,
+                                                val,
+                                                importance,
+                                                color: `hsl(${Math.round(220 - importance * 120)},70%,60%)`
+                                            };
+                                        }),
+                                        links: filteredEdges.map((e: any) => ({
+                                            source: e.source,
+                                            target: e.target,
+                                            value: e.strength,
+                                            color: `rgba(${Math.round(255 - e.strength * 120)},${Math.round(130 + e.strength * 100)},246,0.7)`
+                                        }))
                                     }}
-                                    nodeAutoColorBy="id"
-                                    nodeRelSize={6}
-                                    linkDirectionalParticles={0}
-                                    linkColor={() => 'rgba(59,130,246,0.6)'}
-                                    linkWidth={(l: any) => Math.max(0.5, (l.value || 0) * 3)}
+                                    nodeRelSize={1}
+                                    nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D) => {
+                                        // Draw node circle
+                                        ctx.beginPath();
+                                        ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI, false);
+                                        ctx.fillStyle = node.color;
+                                        ctx.fill();
+                                        ctx.strokeStyle = '#fff';
+                                        ctx.lineWidth = 2;
+                                        ctx.stroke();
+                                        // Draw node label floating above the node
+                                        ctx.font = `${Math.max(10, node.val)}px Sans-serif`;
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'bottom';
+                                        ctx.fillStyle = '#222';
+                                        ctx.fillText(node.name, node.x, node.y - node.val - 4);
+                                    }}
+                                    linkColor={(link: any) => link.color}
+                                    linkWidth={(l: any) => Math.max(1, (l.value || 0) * 4)}
                                     d3VelocityDecay={0.3}
+                                    nodeLabel={(node: any) => `${node.name} (importance: ${(node.importance || 0).toFixed(2)})`}
+                                    linkLabel={(link: any) => `Strength: ${link.value ? link.value.toFixed(3) : 'N/A'}`}
+                                    enableNodeDrag={true}
                                 />
                             </div>
                         )}

@@ -1,7 +1,13 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from .base_model_service import BaseModelService
+try:
+    from lime.lime_tabular import LimeTabularExplainer
+    LIME_AVAILABLE = True
+except ImportError:
+    LIME_AVAILABLE = False
+    print("LIME not available. Install with: pip install lime")
 
 
 class PredictionService:
@@ -70,12 +76,14 @@ class PredictionService:
         max_error = np.max(all_errors) if len(all_errors) > 0 else 1.0
         confidence = 1.0 - (prediction_error / max_error) if max_error > 0 else 1.0
         
-        # Get SHAP values for this specific instance
+        # Get feature impact for this specific instance with fallback methods
         try:
-            shap_vals_for_instance = self._get_single_instance_shap(instance_idx, instance_df)
+            feature_impact, impact_method = self._get_feature_impact_with_fallback(instance_df)
+            shap_vals_for_instance = np.array([feature_impact[name] for name in self.base.feature_names])
         except Exception as e:
-            print(f"SHAP computation failed for instance {instance_idx}: {e}")
+            print(f"Feature impact computation failed for instance {instance_idx}: {e}")
             shap_vals_for_instance = np.zeros(len(self.base.feature_names))
+            impact_method = "none"
         
         # Handle case where explainer might not be available
         base_value = 0.0
@@ -103,6 +111,7 @@ class PredictionService:
             "base_value": base_value,
             "shap_values": [float(v) for v in shap_vals_for_instance],
             "feature_contributions": contributions,
+            "impact_method": impact_method,  # New field to indicate which method was used
             "model_type": "regression"
         }
 
@@ -118,12 +127,14 @@ class PredictionService:
         # Create single-row DataFrame for prediction to maintain feature names
         instance_df = pd.DataFrame([instance_data], columns=self.base.feature_names)
         
-        # Get SHAP values for this specific instance
+        # Get feature impact for this specific instance with fallback methods
         try:
-            shap_vals_for_instance = self._get_single_instance_shap(instance_idx, instance_df)
+            feature_impact, impact_method = self._get_feature_impact_with_fallback(instance_df)
+            shap_vals_for_instance = np.array([feature_impact[name] for name in self.base.feature_names])
         except Exception as e:
-            print(f"SHAP computation failed for instance {instance_idx}: {e}")
+            print(f"Feature impact computation failed for instance {instance_idx}: {e}")
             shap_vals_for_instance = np.zeros(len(self.base.feature_names))
+            impact_method = "none"
         
         # Handle case where explainer might not be available
         base_value = 0.0
@@ -132,10 +143,30 @@ class PredictionService:
                 base_value = float(self.base.explainer.expected_value[0] if len(self.base.explainer.expected_value) > 0 else 0.0)
             else:
                 base_value = float(self.base.explainer.expected_value)
-
+        
         # Regression model prediction
         prediction_value = float(self.base.safe_predict(instance_df)[0])
         actual_value = float(self.base.y_s.iloc[instance_idx])
+
+        # Calculate confidence based on prediction error relative to training data errors
+        try:
+            if hasattr(self.base, '_cached_predictions') and self.base._cached_predictions is not None:
+                all_predictions = self.base._cached_predictions
+                all_errors = np.abs(all_predictions - self.base.y_s)
+            else:
+                # Use a sample for efficiency instead of full dataset
+                sample_size = min(1000, len(self.base.X_df))
+                sample_indices = np.random.choice(len(self.base.X_df), sample_size, replace=False)
+                sample_X = self.base.X_df.iloc[sample_indices]
+                sample_y = self.base.y_s.iloc[sample_indices]
+                sample_predictions = self.base.safe_predict(sample_X)
+                all_errors = np.abs(sample_predictions - sample_y)
+            
+            max_error = np.max(all_errors) if len(all_errors) > 0 else 1.0
+            prediction_error = abs(prediction_value - actual_value)
+            confidence = 1.0 - (prediction_error / max_error) if max_error > 0 else 1.0
+        except:
+            confidence = 1.0  # Default to full confidence if error in calculation
 
         # Prepare both mapping and ordered arrays for convenience on the frontend
         shap_mapping = dict(zip(self.base.feature_names, shap_vals_for_instance))
@@ -144,20 +175,118 @@ class PredictionService:
         ordered_values = [float(val) for _, val in ordered]
         ordered_feature_values = [instance_data[name] for name in ordered_features]
 
+        # Add confidence value to the returned dictionary
         return {
             "instance_id": instance_idx,
             "features": instance_data.to_dict(),
             "prediction": prediction_value,
             "actual_value": actual_value,
             "base_value": float(base_value),
+            "confidence": confidence,  # Include confidence value
             "shap_values_map": shap_mapping,
             "ordered_contributions": {
                 "feature_names": ordered_features,
                 "feature_values": [self.base._safe_float(v) for v in ordered_feature_values],
                 "shap_values": ordered_values
             },
+            "impact_method": impact_method,  # New field to indicate which method was used
             "model_type": "regression"
         }
+
+    def _get_feature_impact_with_fallback(self, instance_df: pd.DataFrame) -> Tuple[Dict[str, float], str]:
+        """
+        Calculate feature impact for a single instance with fallback methods.
+        
+        Args:
+            instance_df: DataFrame containing the single instance to analyze
+            
+        Returns:
+            Tuple of (feature_impact_dict, method_used)
+        """
+        # Method 1: Try SHAP first (best local explanation)
+        if self.base.explainer:
+            try:
+                shap_values = self.base.explainer.shap_values(instance_df)
+                if isinstance(shap_values, list):
+                    shap_vals = shap_values[0] if len(shap_values) > 0 else []
+                else:
+                    if len(shap_values.shape) == 2:
+                        shap_vals = shap_values[0]
+                    else:
+                        shap_vals = shap_values
+                
+                if len(shap_vals) == len(self.base.feature_names):
+                    feature_impact = dict(zip(self.base.feature_names, [float(v) for v in shap_vals]))
+                    return feature_impact, "shap"
+            except Exception as e:
+                print(f"SHAP calculation failed: {e}")
+        
+        # Method 2: Try LIME (good local explanation)
+        if LIME_AVAILABLE:
+            try:
+                # Create LIME explainer
+                lime_explainer = LimeTabularExplainer(
+                    training_data=self.base.X_df.values,
+                    feature_names=self.base.feature_names,
+                    mode='regression',
+                    discretize_continuous=False
+                )
+                
+                # Get explanation for this instance
+                instance_array = instance_df.values[0]
+                explanation = lime_explainer.explain_instance(
+                    instance_array,
+                    self.base.model.predict,
+                    num_features=len(self.base.feature_names)
+                )
+                
+                # Extract feature impacts from LIME explanation
+                feature_impact = {}
+                for feature_idx, impact_value in explanation.as_list():
+                    # LIME returns (feature_name_or_idx, impact_value) pairs
+                    if isinstance(feature_idx, str):
+                        feature_name = feature_idx
+                    else:
+                        # If it's an index, get the feature name
+                        feature_name = self.base.feature_names[int(feature_idx)]
+                    feature_impact[feature_name] = float(impact_value)
+                
+                # Ensure all features are included (LIME might not return all)
+                for feature_name in self.base.feature_names:
+                    if feature_name not in feature_impact:
+                        feature_impact[feature_name] = 0.0
+                
+                return feature_impact, "lime"
+                
+            except Exception as e:
+                print(f"LIME calculation failed: {e}")
+        
+        # Method 3: Feature Ablation (basic local explanation)
+        try:
+            base_prediction = float(self.base.safe_predict(instance_df)[0])
+            feature_impact = {}
+            
+            for feature_name in self.base.feature_names:
+                # Create modified instance with feature set to dataset mean
+                modified_instance = instance_df.copy()
+                modified_instance[feature_name] = self.base.X_df[feature_name].mean()
+                
+                # Calculate impact as difference in prediction
+                modified_prediction = float(self.base.safe_predict(modified_instance)[0])
+                impact = base_prediction - modified_prediction
+                feature_impact[feature_name] = impact
+            
+            return feature_impact, "ablation"
+            
+        except Exception as e:
+            print(f"Feature ablation failed: {e}")
+        
+        # Method 4: Return informative error if all methods fail
+        raise ValueError(
+            "Unable to calculate feature explanations. "
+            "This model is not compatible with SHAP, LIME, or ablation methods. "
+            "Consider using a different model (RandomForest, XGBoost, LinearRegression) "
+        )
 
     def perform_what_if(self, features: Dict[str, Any]) -> Dict[str, Any]:
         """Perform what-if analysis by modifying feature values."""
@@ -192,45 +321,15 @@ class PredictionService:
                 traceback.print_exc()
                 raise
 
-            # SHAP explanation
-            shap_explanation = {}
-            if self.base.explainer:
-                try:
-                    shap_values = self.base.explainer.shap_values(instance_df)
-                    if isinstance(shap_values, list):
-                        shap_vals = shap_values[0] if len(shap_values) > 0 else []
-                    else:
-                        if len(shap_values.shape) == 2:
-                            shap_vals = shap_values[0]
-                        else:
-                            shap_vals = shap_values
-                    shap_explanation = dict(zip(self.base.feature_names, [float(v) for v in shap_vals]))
-                except Exception as e:
-                    pass
-            # ...existing code...
-            
-            # Get SHAP explanation if available
-            shap_explanation = {}
-            if self.base.explainer:
-                try:
-                    shap_values = self.base.explainer.shap_values(instance_df)
-                    if isinstance(shap_values, list):
-                        shap_vals = shap_values[0] if len(shap_values) > 0 else []
-                    else:
-                        if len(shap_values.shape) == 2:
-                            shap_vals = shap_values[0]
-                        else:
-                            shap_vals = shap_values
-                    
-                    shap_explanation = dict(zip(self.base.feature_names, [float(v) for v in shap_vals]))
-                except Exception as e:
-                    print(f"SHAP explanation failed: {e}")
+            # Get feature impact using fallback methods
+            feature_impact, impact_method = self._get_feature_impact_with_fallback(instance_df)
             
             return {
                 "modified_features": features,
                 "prediction_value": prediction_value,
                 "feature_values": base_instance.to_dict(),
-                "shap_explanations": shap_explanation,
+                "shap_explanations": feature_impact,  # Keep same key name for backward compatibility
+                "impact_method": impact_method,  # New field to indicate which method was used
                 "model_type": "regression",
                 "feature_ranges": self._get_feature_ranges()
             }

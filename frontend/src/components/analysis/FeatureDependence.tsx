@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { TrendingUp, Search, BarChart3, Settings, AlertCircle, Loader2 } from 'lucide-react';
-import { getModelOverview, postPartialDependence, postShapDependence, postIcePlot } from '../../services/api';
+import { postFeatureDependence, postPartialDependence, postShapDependence, postIcePlot, postFeaturesMetadata } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import AIExplanationPanel from '../common/AIExplanationPanel';
 
@@ -143,20 +144,47 @@ const FeatureDependence: React.FC<{ modelType?: string }> = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showAIExplanation, setShowAIExplanation] = useState(false);
+    const { config } = useS3Config();
 
     useEffect(() => {
-        // load features from overview
+        // load features from stateless API
         (async () => {
             try {
-                const overview = await getModelOverview();
-                const names: string[] = overview.feature_names || [];
+                const payload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn
+                };
+                // Extra error handling: check for missing config values
+                const missing = [];
+                if (!payload.model) missing.push('modelUrl');
+                if (!payload.train_dataset) missing.push('trainDatasetUrl');
+                if (!payload.test_dataset) missing.push('testDatasetUrl');
+                if (!payload.target_column) missing.push('targetColumn');
+                if (missing.length > 0) {
+                    setError('Missing config values: ' + missing.join(', '));
+                    return;
+                }
+                const overview = await postFeaturesMetadata(payload);
+                let names: string[] = [];
+                if (Array.isArray(overview.feature_names)) {
+                    names = overview.feature_names;
+                } else if (Array.isArray(overview.features)) {
+                    // If features is array of objects, map to their name property
+                    if (overview.features.length > 0 && typeof overview.features[0] === 'object') {
+                        names = overview.features.map((f: any) => f.name).filter(Boolean);
+                    } else {
+                        names = overview.features;
+                    }
+                }
                 setFeatureList(names);
                 if (names.length > 0) setSelectedFeature(names[0]);
             } catch (e: any) {
                 setError(e.response?.data?.detail || 'Unable to load feature list');
             }
         })();
-    }, []);
+    }, [config]);
 
     useEffect(() => {
         if (!selectedFeature) return;
@@ -164,10 +192,29 @@ const FeatureDependence: React.FC<{ modelType?: string }> = () => {
             try {
                 setLoading(true);
                 setError('');
+                const payload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn,
+                    feature_name: selectedFeature
+                };
+                // Extra error handling: check for missing config values
+                const missing = [];
+                if (!payload.model) missing.push('modelUrl');
+                if (!payload.train_dataset) missing.push('trainDatasetUrl');
+                if (!payload.test_dataset) missing.push('testDatasetUrl');
+                if (!payload.target_column) missing.push('targetColumn');
+                if (!payload.feature_name) missing.push('feature_name');
+                if (missing.length > 0) {
+                    setError('Missing config values: ' + missing.join(', '));
+                    setLoading(false);
+                    return;
+                }
                 const [p, s, i] = await Promise.all([
-                    postPartialDependence(selectedFeature, 25),
-                    postShapDependence(selectedFeature),
-                    postIcePlot(selectedFeature, 15, 20)
+                    postPartialDependence(payload),
+                    postShapDependence(payload),
+                    postIcePlot(payload)
                 ]);
                 setPdp(p);
                 setShapDep(s);
@@ -178,7 +225,7 @@ const FeatureDependence: React.FC<{ modelType?: string }> = () => {
                 setLoading(false);
             }
         })();
-    }, [selectedFeature]);
+    }, [selectedFeature, config]);
 
     const filteredFeatures = featureList.filter(f => f.toLowerCase().includes(searchTerm.toLowerCase()));
 

@@ -1,3 +1,38 @@
+# --- API Documentation: Stateless S3-based Endpoints ---
+#
+# All analysis, prediction, and feature endpoints now require S3 URLs for model, train dataset, test dataset, and target column in the request payload.
+# Endpoints load model/data from S3 for every request (stateless pattern).
+#
+# Example payload (for POST endpoints):
+# {
+#   "model": "<S3 URL to model>",
+#   "train_dataset": "<S3 URL to train dataset>",
+#   "test_dataset": "<S3 URL to test dataset>",
+#   "target_column": "target",
+#   ...additional parameters...
+# }
+#
+# Updated endpoints:
+# - /analysis/overview
+# - /analysis/regression-stats
+# - /analysis/feature-importance
+# - /analysis/explain-instance
+# - /analysis/what-if
+# - /analysis/feature-dependence
+# - /analysis/instances
+# - /analysis/dataset-comparison
+# - /analysis/feature-interactions
+# - /analysis/decision-tree
+# - /api/correlation
+# - /api/feature-importance
+# - /api/individual-prediction
+# - /api/partial-dependence
+# - /api/shap-dependence
+# - /api/ice-plot
+# - /api/interaction-network
+# - /api/pairwise-analysis
+#
+# All endpoints are now stateless and robust to backend restarts, scaling, and multi-instance deployments.
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException, Depends, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +45,18 @@ from app.core.config import settings
 from app.core.auth import verify_token
 from app.services.model_service import ModelService
 from app.services.ai_explanation_service import AIExplanationService
+import pandas as pd
+import joblib
+import requests
+import tempfile
+import os
 import math
+from typing import Dict
+from fastapi import APIRouter, Depends, Body, HTTPException
+from pydantic import BaseModel
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.PROJECT_VERSION)
+
+# --- S3 Utility Functions ---
 
 app.add_middleware(
     CORSMiddleware,
@@ -103,9 +148,7 @@ def get_s3_file_metadata():
         print(f"Error processing external S3 API response: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing S3 API response: {str(e)}")
 
-from typing import Dict
-from fastapi import APIRouter, Depends, Body, HTTPException
-from pydantic import BaseModel
+
 
 class LoadDataRequest(BaseModel):
     model: str
@@ -131,112 +174,410 @@ async def load_data(payload: LoadDataRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-@app.get("/analysis/overview", tags=["Analysis"])
-async def get_overview(token: str = Depends(verify_token)):
-    return handle_request(model_service.get_model_overview)
+@app.post("/analysis/overview", tags=["Analysis"])
+async def get_overview(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_model_overview)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/regression-stats", tags=["Analysis"])
-async def get_regression_statistics(token: str = Depends(verify_token)):
-    return handle_request(model_service.get_regression_stats)
+@app.post("/analysis/regression-stats", tags=["Analysis"])
+async def get_regression_statistics(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_regression_stats)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/feature-importance", tags=["Analysis"])
-async def get_feature_importance(method: str = 'shap', token: str = Depends(verify_token)):
-    return handle_request(model_service.get_feature_importance, method)
+@app.post("/analysis/feature-importance", tags=["Analysis"])
+async def get_feature_importance(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    """
+    Expects payload:
+    {
+        "model": "<S3 URL to model>",
+        "train_dataset": "<S3 URL to train dataset>",
+        "test_dataset": "<S3 URL to test dataset>",
+        "target_column": "target",
+        "method": "shap"
+    }
+    """
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    method = payload.get("method", "shap")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        # Use the existing load_model_and_datasets method
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_feature_importance, method)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/explain-instance/{instance_idx}", tags=["Analysis"])
-async def explain_instance(instance_idx: int, token: str = Depends(verify_token)):
-    return handle_request(model_service.explain_instance, instance_idx)
+@app.post("/analysis/explain-instance", tags=["Analysis"])
+async def explain_instance(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    instance_idx = int(payload.get("instance_idx", 0))
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.explain_instance, instance_idx)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/analysis/what-if", tags=["Analysis"])
 async def perform_what_if(payload: Dict = Body(...), token: str = Depends(verify_token)):
-    return handle_request(model_service.perform_what_if, payload.get("features"))
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    features = payload.get("features")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.perform_what_if, features)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/feature-dependence/{feature_name}", tags=["Analysis"])
-async def get_feature_dependence(feature_name: str, token: str = Depends(verify_token)):
-    return handle_request(model_service.get_feature_dependence, feature_name)
+@app.post("/analysis/feature-dependence", tags=["Analysis"])
+async def get_feature_dependence(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    feature_name = payload.get("feature_name")
+    if not model_url or not train_data_url or not test_data_url or not feature_name:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs or feature_name")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_feature_dependence, feature_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/instances", tags=["Analysis"])
-async def list_instances(sort_by: str = 'prediction', limit: int = 100, token: str = Depends(verify_token)):
-    return handle_request(model_service.list_instances, sort_by, limit)
+@app.post("/analysis/instances", tags=["Analysis"])
+async def list_instances(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    sort_by = payload.get("sort_by", "prediction")
+    limit = int(payload.get("limit", 100))
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.list_instances, sort_by, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/dataset-comparison", tags=["Analysis"])
-async def get_dataset_comparison(token: str = Depends(verify_token)):
-    return handle_request(model_service.get_dataset_comparison)
+@app.post("/analysis/dataset-comparison", tags=["Analysis"])
+async def get_dataset_comparison(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_dataset_comparison)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 # --- New enterprise feature endpoints ---
-@app.get("/api/features", tags=["Features"])
-async def get_features_metadata(token: str = Depends(verify_token)):
-    return handle_request(model_service.get_feature_metadata)
+@app.post("/api/features", tags=["Features"])
+async def get_features_metadata(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_feature_metadata)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/api/correlation", tags=["Features"])
 async def post_correlation(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
     selected: List[str] = payload.get("features") or []
-    return handle_request(model_service.compute_correlation, selected)
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.compute_correlation, selected)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/api/feature-importance", tags=["Features"])
 async def post_feature_importance(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
     method = payload.get("method", "shap")
     sort_by = payload.get("sort_by", "importance")
     top_n = int(payload.get("top_n", 20))
     visualization = payload.get("visualization", "bar")
-    return handle_request(model_service.compute_feature_importance_advanced, method, sort_by, top_n, visualization)
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.compute_feature_importance_advanced, method, sort_by, top_n, visualization)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
-@app.get("/analysis/feature-interactions", tags=["Analysis"])
-async def get_feature_interactions(feature1: str, feature2: str, token: str = Depends(verify_token)):
-    return handle_request(model_service.get_feature_interactions, feature1, feature2)
 
-@app.get("/analysis/decision-tree", tags=["Analysis"])
-async def get_decision_tree(token: str = Depends(verify_token)):
-    return handle_request(model_service.get_decision_tree)
+# Updated to stateless POST endpoints
+@app.post("/analysis/feature-interactions", tags=["Analysis"])
+async def post_feature_interactions(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    feature1 = payload.get("feature1")
+    feature2 = payload.get("feature2")
+    if not model_url or not train_data_url or not test_data_url or not feature1 or not feature2:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs or feature names")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_feature_interactions, feature1, feature2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
+
+@app.post("/analysis/decision-tree", tags=["Analysis"])
+async def post_decision_tree(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.get_decision_tree)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 # --- Individual Prediction API ---  
 @app.post("/api/individual-prediction", tags=["Prediction"])
 async def post_individual_prediction(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
     instance_idx = int(payload.get("instance_idx", 0))
-    return handle_request(model_service.individual_prediction, instance_idx)
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.individual_prediction, instance_idx)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 # --- Regression Analysis Endpoints ---
 @app.post("/api/partial-dependence", tags=["Dependence"])
 async def post_partial_dependence(payload: Dict = Body(...), token: str = Depends(verify_token)):
-    feature = payload.get("feature")
-    if not feature:
-        raise HTTPException(status_code=400, detail="Missing 'feature'")
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    feature_name = payload.get("feature_name")
     num_points = int(payload.get("num_points", 20))
-    return handle_request(model_service.partial_dependence, feature, num_points)
+    if not model_url or not train_data_url or not test_data_url or not feature_name:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model/datasets or 'feature'")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.partial_dependence, feature_name, num_points)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/api/shap-dependence", tags=["Dependence"])
 async def post_shap_dependence(payload: Dict = Body(...), token: str = Depends(verify_token)):
-    feature = payload.get("feature")
-    if not feature:
-        raise HTTPException(status_code=400, detail="Missing 'feature'")
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    feature_name = payload.get("feature_name")
     color_by = payload.get("color_by")
-    return handle_request(model_service.shap_dependence, feature, color_by)
+    if not model_url or not train_data_url or not test_data_url or not feature_name:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model/datasets or 'feature'")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.shap_dependence, feature_name, color_by)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/api/ice-plot", tags=["Dependence"])
 async def post_ice_plot(payload: Dict = Body(...), token: str = Depends(verify_token)):
-    feature = payload.get("feature")
-    if not feature:
-        raise HTTPException(status_code=400, detail="Missing 'feature'")
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
+    feature_name = payload.get("feature_name")
     num_points = int(payload.get("num_points", 20))
     num_instances = int(payload.get("num_instances", 20))
-    return handle_request(model_service.ice_plot, feature, num_points, num_instances)
+    if not model_url or not train_data_url or not test_data_url or not feature_name:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model/datasets or 'feature_name'")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.ice_plot, feature_name, num_points, num_instances)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 # --- Section 5 APIs ---
 @app.post("/api/interaction-network", tags=["Interactions"])
-async def post_interaction_network(payload: Dict = Body({}), token: str = Depends(verify_token)):
+async def post_interaction_network(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
     top_k = int(payload.get("top_k", 30))
     sample_rows = int(payload.get("sample_rows", 200))
-    return handle_request(model_service.interaction_network, top_k, sample_rows)
+    if not model_url or not train_data_url or not test_data_url:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model or datasets")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.interaction_network, top_k, sample_rows)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 @app.post("/api/pairwise-analysis", tags=["Interactions"])
 async def post_pairwise_analysis(payload: Dict = Body(...), token: str = Depends(verify_token)):
+    model_url = payload.get("model")
+    train_data_url = payload.get("train_dataset")
+    test_data_url = payload.get("test_dataset")
+    target_column = payload.get("target_column", "target")
     f1 = payload.get("feature1")
     f2 = payload.get("feature2")
-    if not f1 or not f2:
-        raise HTTPException(status_code=400, detail="Missing 'feature1' or 'feature2'")
     color_by = payload.get("color_by")
     sample_size = int(payload.get("sample_size", 1000))
-    return handle_request(model_service.pairwise_analysis, f1, f2, color_by, sample_size)
+    if not model_url or not train_data_url or not test_data_url or not f1 or not f2:
+        raise HTTPException(status_code=400, detail="Missing S3 URLs for model/datasets or 'feature1'/'feature2'")
+    try:
+        model_service.load_model_and_datasets(
+            model_path=model_url,
+            train_data_path=train_data_url,
+            test_data_path=test_data_url,
+            target_column=target_column
+        )
+        return handle_request(model_service.pairwise_analysis, f1, f2, color_by, sample_size)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading model/data from S3: {e}")
 
 # --- AI Explanation Endpoint ---
 @app.post("/analysis/explain-with-ai", tags=["AI Analysis"])

@@ -103,13 +103,20 @@ class TreeService:
                     feature = feature_names[tree.feature[node]]
                     threshold = float(tree.threshold[node])
                     samples = int(tree.n_node_samples[node])
-                    
+
                     # For regression trees, impurity is MSE (mean squared error)
                     mse = float(tree.impurity[node])
-                    
+
                     # Calculate the mean prediction value at this node
                     node_value = float(tree.value[node][0][0])
-                    
+
+                    # Calculate reduction in variance
+                    left_child = tree.children_left[node]
+                    right_child = tree.children_right[node]
+                    left_variance = float(tree.impurity[left_child]) if left_child != _tree.TREE_UNDEFINED else 0.0
+                    right_variance = float(tree.impurity[right_child]) if right_child != _tree.TREE_UNDEFINED else 0.0
+                    reduction_in_variance = mse - (left_variance + right_variance)
+
                     return {
                         "type": "split",
                         "feature": feature,
@@ -118,27 +125,28 @@ class TreeService:
                         "mse": mse,
                         "std_dev": np.sqrt(mse),  # Standard deviation
                         "mean_value": node_value,
+                        "reduction_in_variance": reduction_in_variance,
                         "node_id": f"node_{node}",
                         "depth": depth,
                         "left": recurse(tree.children_left[node], depth + 1),
                         "right": recurse(tree.children_right[node], depth + 1)
                     }
                 else:
-                    # Leaf node - THIS IS WHERE THE MAIN FIX IS
+                    # Leaf node
                     samples = int(tree.n_node_samples[node])
-                    
+
                     # For regression: extract the actual predicted continuous value
                     predicted_value = float(tree.value[node][0][0])
-                    
+
                     # Parent node's MSE (uncertainty measure)
                     parent_node = -1
                     for i in range(tree.node_count):
                         if tree.children_left[i] == node or tree.children_right[i] == node:
                             parent_node = i
                             break
-                    
+
                     parent_mse = float(tree.impurity[parent_node]) if parent_node >= 0 else 0.0
-                    
+
                     return {
                         "type": "leaf",
                         "samples": samples,

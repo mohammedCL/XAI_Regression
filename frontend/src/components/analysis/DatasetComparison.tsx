@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDatasetComparison } from '../../services/api';
+import { postDatasetComparison } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import { AlertCircle, Loader2, Database, TrendingUp, TrendingDown } from 'lucide-react';
 
 const MetricCard = ({ 
@@ -60,6 +62,7 @@ const MetricCard = ({
 };
 
 const DatasetComparison: React.FC = () => {
+    const { config } = useS3Config();
     const [comparison, setComparison] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -68,7 +71,13 @@ const DatasetComparison: React.FC = () => {
         const fetchComparison = async () => {
             try {
                 setLoading(true);
-                const data = await getDatasetComparison();
+                const payload = {
+                    model: config.modelUrl,
+                    train_dataset: config.trainDatasetUrl,
+                    test_dataset: config.testDatasetUrl,
+                    target_column: config.targetColumn
+                };
+                const data = await postDatasetComparison(payload);
                 setComparison(data);
             } catch (err: any) {
                 setError(err.response?.data?.detail || 'Failed to fetch dataset comparison.');

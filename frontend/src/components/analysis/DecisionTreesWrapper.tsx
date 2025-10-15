@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DecisionTrees from './DecisionTrees';
-import { getDecisionTree } from '../../services/api';
+import { postDecisionTree } from '../../services/api.stateless';
+import { useS3Config } from '../../context/S3ConfigContext';
 import ExplainWithAIButton from '../common/ExplainWithAIButton';
 import AIExplanationPanel from '../common/AIExplanationPanel';
 
@@ -30,6 +31,7 @@ interface TreeData {
 }
 
 const DecisionTreesWrapper: React.FC = () => {
+  const { config } = useS3Config();
   const [treesData, setTreesData] = useState<TreeData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +40,14 @@ const DecisionTreesWrapper: React.FC = () => {
   useEffect(() => {
     const fetchTreesData = async () => {
       try {
-        console.log('Fetching decision tree data from API...');
-        const response = await getDecisionTree();
+        console.log('Fetching decision tree data from stateless API...');
+        const payload = {
+          model: config.modelUrl,
+          train_dataset: config.trainDatasetUrl,
+          test_dataset: config.testDatasetUrl,
+          target_column: config.targetColumn
+        };
+        const response = await postDecisionTree(payload);
         console.log('Decision tree response:', response);
         console.log('Number of trees received:', response.trees?.length || 0);
         if (response.trees && response.trees.length > 0) {
